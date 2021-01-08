@@ -8,7 +8,8 @@ import (
 	conf_v1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1"
 	conf_v1alpha1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/api/extensions/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 )
@@ -64,6 +65,12 @@ func (tq *taskQueue) Requeue(task task, err error) {
 	tq.queue.Add(task)
 }
 
+// Len returns the length of the queue
+func (tq *taskQueue) Len() int {
+	glog.V(3).Infof("The queue has %v element(s)", tq.queue.Len())
+	return tq.queue.Len()
+}
+
 // RequeueAfter adds the task to the queue after the given duration
 func (tq *taskQueue) RequeueAfter(t task, err error, after time.Duration) {
 	glog.Errorf("Requeuing %v after %s, err %v", t.Key, after.String(), err)
@@ -117,6 +124,12 @@ const (
 	globalConfiguration
 	// transportserver resource
 	transportserver
+	// policy resource
+	policy
+	// appProtectPolicy resource
+	appProtectPolicy
+	// appProtectlogconf resource
+	appProtectLogConf
 )
 
 // task is an element of a taskQueue
@@ -129,8 +142,8 @@ type task struct {
 func newTask(key string, obj interface{}) (task, error) {
 	var k kind
 	switch t := obj.(type) {
-	case *v1beta1.Ingress:
-		ing := obj.(*v1beta1.Ingress)
+	case *networking.Ingress:
+		ing := obj.(*networking.Ingress)
 		if isMinion(ing) {
 			k = ingressMinion
 		} else {
@@ -152,8 +165,18 @@ func newTask(key string, obj interface{}) (task, error) {
 		k = globalConfiguration
 	case *conf_v1alpha1.TransportServer:
 		k = transportserver
+	case *conf_v1alpha1.Policy:
+		k = policy
+	case *unstructured.Unstructured:
+		if objectKind := obj.(*unstructured.Unstructured).GetKind(); objectKind == appProtectPolicyGVK.Kind {
+			k = appProtectPolicy
+		} else if objectKind == appProtectLogConfGVK.Kind {
+			k = appProtectLogConf
+		} else {
+			return task{}, fmt.Errorf("Unknow unstructured kind: %v", objectKind)
+		}
 	default:
-		return task{}, fmt.Errorf("Unknow type: %v", t)
+		return task{}, fmt.Errorf("Unknown type: %v", t)
 	}
 
 	return task{k, key}, nil

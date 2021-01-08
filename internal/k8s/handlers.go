@@ -6,11 +6,15 @@ import (
 
 	"github.com/golang/glog"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/api/extensions/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
 	"k8s.io/client-go/tools/cache"
+
+	"fmt"
 
 	conf_v1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1"
 	conf_v1alpha1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1alpha1"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // createConfigMapHandlers builds the handler funcs for config maps
@@ -92,8 +96,8 @@ func createEndpointHandlers(lbc *LoadBalancerController) cache.ResourceEventHand
 func createIngressHandlers(lbc *LoadBalancerController) cache.ResourceEventHandlerFuncs {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			ingress := obj.(*v1beta1.Ingress)
-			if !lbc.IsNginxIngress(ingress) {
+			ingress := obj.(*networking.Ingress)
+			if !lbc.HasCorrectIngressClass(ingress) {
 				glog.Infof("Ignoring Ingress %v based on Annotation %v", ingress.Name, ingressClassKey)
 				return
 			}
@@ -101,20 +105,20 @@ func createIngressHandlers(lbc *LoadBalancerController) cache.ResourceEventHandl
 			lbc.AddSyncQueue(obj)
 		},
 		DeleteFunc: func(obj interface{}) {
-			ingress, isIng := obj.(*v1beta1.Ingress)
+			ingress, isIng := obj.(*networking.Ingress)
 			if !isIng {
 				deletedState, ok := obj.(cache.DeletedFinalStateUnknown)
 				if !ok {
 					glog.V(3).Infof("Error received unexpected object: %v", obj)
 					return
 				}
-				ingress, ok = deletedState.Obj.(*v1beta1.Ingress)
+				ingress, ok = deletedState.Obj.(*networking.Ingress)
 				if !ok {
 					glog.V(3).Infof("Error DeletedFinalStateUnknown contained non-Ingress object: %v", deletedState.Obj)
 					return
 				}
 			}
-			if !lbc.IsNginxIngress(ingress) {
+			if !lbc.HasCorrectIngressClass(ingress) {
 				return
 			}
 			if isMinion(ingress) {
@@ -131,9 +135,9 @@ func createIngressHandlers(lbc *LoadBalancerController) cache.ResourceEventHandl
 			}
 		},
 		UpdateFunc: func(old, current interface{}) {
-			c := current.(*v1beta1.Ingress)
-			o := old.(*v1beta1.Ingress)
-			if !lbc.IsNginxIngress(c) {
+			c := current.(*networking.Ingress)
+			o := old.(*networking.Ingress)
+			if !lbc.HasCorrectIngressClass(c) {
 				return
 			}
 			if hasChanges(o, c) {
@@ -316,6 +320,10 @@ func createVirtualServerHandlers(lbc *LoadBalancerController) cache.ResourceEven
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			vs := obj.(*conf_v1.VirtualServer)
+			if !lbc.HasCorrectIngressClass(vs) {
+				glog.Infof("Ignoring VirtualServer %v based on class %v", vs.Name, vs.Spec.IngressClass)
+				return
+			}
 			glog.V(3).Infof("Adding VirtualServer: %v", vs.Name)
 			lbc.AddSyncQueue(vs)
 		},
@@ -333,12 +341,21 @@ func createVirtualServerHandlers(lbc *LoadBalancerController) cache.ResourceEven
 					return
 				}
 			}
+			if !lbc.HasCorrectIngressClass(vs) {
+				glog.Infof("Ignoring VirtualServer %v based on class %v", vs.Name, vs.Spec.IngressClass)
+				return
+			}
 			glog.V(3).Infof("Removing VirtualServer: %v", vs.Name)
 			lbc.AddSyncQueue(vs)
 		},
 		UpdateFunc: func(old, cur interface{}) {
 			curVs := cur.(*conf_v1.VirtualServer)
-			if !reflect.DeepEqual(old, cur) {
+			oldVs := old.(*conf_v1.VirtualServer)
+			if !lbc.HasCorrectIngressClass(curVs) {
+				glog.Infof("Ignoring VirtualServer %v based on class %v", curVs.Name, curVs.Spec.IngressClass)
+				return
+			}
+			if !reflect.DeepEqual(oldVs.Spec, curVs.Spec) {
 				glog.V(3).Infof("VirtualServer %v changed, syncing", curVs.Name)
 				lbc.AddSyncQueue(curVs)
 			}
@@ -350,6 +367,10 @@ func createVirtualServerRouteHandlers(lbc *LoadBalancerController) cache.Resourc
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			vsr := obj.(*conf_v1.VirtualServerRoute)
+			if !lbc.HasCorrectIngressClass(vsr) {
+				glog.Infof("Ignoring VirtualServerRoute %v based on class %v", vsr.Name, vsr.Spec.IngressClass)
+				return
+			}
 			glog.V(3).Infof("Adding VirtualServerRoute: %v", vsr.Name)
 			lbc.AddSyncQueue(vsr)
 		},
@@ -367,12 +388,21 @@ func createVirtualServerRouteHandlers(lbc *LoadBalancerController) cache.Resourc
 					return
 				}
 			}
+			if !lbc.HasCorrectIngressClass(vsr) {
+				glog.Infof("Ignoring VirtualServerRoute %v based on class %v", vsr.Name, vsr.Spec.IngressClass)
+				return
+			}
 			glog.V(3).Infof("Removing VirtualServerRoute: %v", vsr.Name)
 			lbc.AddSyncQueue(vsr)
 		},
 		UpdateFunc: func(old, cur interface{}) {
 			curVsr := cur.(*conf_v1.VirtualServerRoute)
-			if !reflect.DeepEqual(old, cur) {
+			oldVsr := old.(*conf_v1.VirtualServerRoute)
+			if !lbc.HasCorrectIngressClass(curVsr) {
+				glog.Infof("Ignoring VirtualServerRoute %v based on class %v", curVsr.Name, curVsr.Spec.IngressClass)
+				return
+			}
+			if !reflect.DeepEqual(oldVsr.Spec, curVsr.Spec) {
 				glog.V(3).Infof("VirtualServerRoute %v changed, syncing", curVsr.Name)
 				lbc.AddSyncQueue(curVsr)
 			}
@@ -446,4 +476,114 @@ func createTransportServerHandlers(lbc *LoadBalancerController) cache.ResourceEv
 			}
 		},
 	}
+}
+
+func createPolicyHandlers(lbc *LoadBalancerController) cache.ResourceEventHandlerFuncs {
+	return cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			pol := obj.(*conf_v1alpha1.Policy)
+			glog.V(3).Infof("Adding Policy: %v", pol.Name)
+			lbc.AddSyncQueue(pol)
+		},
+		DeleteFunc: func(obj interface{}) {
+			pol, isPol := obj.(*conf_v1alpha1.Policy)
+			if !isPol {
+				deletedState, ok := obj.(cache.DeletedFinalStateUnknown)
+				if !ok {
+					glog.V(3).Infof("Error received unexpected object: %v", obj)
+					return
+				}
+				pol, ok = deletedState.Obj.(*conf_v1alpha1.Policy)
+				if !ok {
+					glog.V(3).Infof("Error DeletedFinalStateUnknown contained non-Policy object: %v", deletedState.Obj)
+					return
+				}
+			}
+			glog.V(3).Infof("Removing Policy: %v", pol.Name)
+			lbc.AddSyncQueue(pol)
+		},
+		UpdateFunc: func(old, cur interface{}) {
+			curPol := cur.(*conf_v1alpha1.Policy)
+			if !reflect.DeepEqual(old, cur) {
+				glog.V(3).Infof("Policy %v changed, syncing", curPol.Name)
+				lbc.AddSyncQueue(curPol)
+			}
+		},
+	}
+}
+
+func createAppProtectPolicyHandlers(lbc *LoadBalancerController) cache.ResourceEventHandlerFuncs {
+	handlers := cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			pol := obj.(*unstructured.Unstructured)
+			glog.V(3).Infof("Adding AppProtectPolicy: %v", pol.GetName())
+			lbc.AddSyncQueue(pol)
+		},
+		UpdateFunc: func(oldObj, obj interface{}) {
+			oldPol := oldObj.(*unstructured.Unstructured)
+			newPol := obj.(*unstructured.Unstructured)
+			updated, err := compareSpecs(oldPol, newPol)
+			if err != nil {
+				glog.V(3).Infof("Error when comparing policy %v", err)
+				lbc.AddSyncQueue(newPol)
+			}
+			if updated {
+				glog.V(3).Infof("ApPolicy %v changed, syncing", oldPol.GetName())
+				lbc.AddSyncQueue(newPol)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			lbc.AddSyncQueue(obj)
+		},
+	}
+	return handlers
+}
+
+func compareSpecs(oldresource, resource *unstructured.Unstructured) (bool, error) {
+	oldSpec, found, err := unstructured.NestedMap(oldresource.Object, "spec")
+	if !found {
+		glog.V(3).Infof("Warning, oldspec has unexpected format")
+	}
+	if err != nil {
+		return false, err
+	}
+	spec, found, err := unstructured.NestedMap(resource.Object, "spec")
+	if !found {
+		return false, fmt.Errorf("Error, spec has unexpected format")
+	}
+	if err != nil {
+		return false, err
+	}
+	eq := reflect.DeepEqual(oldSpec, spec)
+	if eq {
+		glog.V(3).Infof("New spec of %v same as old spec", oldresource.GetName())
+	}
+	return !eq, nil
+}
+
+func createAppProtectLogConfHandlers(lbc *LoadBalancerController) cache.ResourceEventHandlerFuncs {
+	handlers := cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			conf := obj.(*unstructured.Unstructured)
+			glog.V(3).Infof("Adding AppProtectLogConf: %v", conf.GetName())
+			lbc.AddSyncQueue(conf)
+		},
+		UpdateFunc: func(oldObj, obj interface{}) {
+			oldConf := oldObj.(*unstructured.Unstructured)
+			newConf := obj.(*unstructured.Unstructured)
+			updated, err := compareSpecs(oldConf, newConf)
+			if err != nil {
+				glog.V(3).Infof("Error when comparing LogConfs %v", err)
+				lbc.AddSyncQueue(newConf)
+			}
+			if updated {
+				glog.V(3).Infof("ApLogConf %v changed, syncing", oldConf.GetName())
+				lbc.AddSyncQueue(newConf)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			lbc.AddSyncQueue(obj)
+		},
+	}
+	return handlers
 }

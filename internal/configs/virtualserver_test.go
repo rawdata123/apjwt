@@ -8,7 +8,9 @@ import (
 	"github.com/nginxinc/kubernetes-ingress/internal/configs/version2"
 	"github.com/nginxinc/kubernetes-ingress/internal/nginx"
 	conf_v1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1"
+	conf_v1alpha1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1alpha1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func TestVirtualServerExString(t *testing.T) {
@@ -379,6 +381,12 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 	expected := version2.VirtualServerConfig{
 		Upstreams: []version2.Upstream{
 			{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "tea-svc",
+					ResourceType:      "virtualserver",
+					ResourceName:      "cafe",
+					ResourceNamespace: "default",
+				},
 				Name: "vs_default_cafe_tea",
 				Servers: []version2.UpstreamServer{
 					{
@@ -388,6 +396,12 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 				Keepalive: 16,
 			},
 			{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "tea-svc",
+					ResourceType:      "virtualserver",
+					ResourceName:      "cafe",
+					ResourceNamespace: "default",
+				},
 				Name: "vs_default_cafe_tea-latest",
 				Servers: []version2.UpstreamServer{
 					{
@@ -397,6 +411,12 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 				Keepalive: 16,
 			},
 			{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "coffee-svc",
+					ResourceType:      "virtualserver",
+					ResourceName:      "cafe",
+					ResourceNamespace: "default",
+				},
 				Name: "vs_default_cafe_coffee",
 				Servers: []version2.UpstreamServer{
 					{
@@ -406,6 +426,12 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 				Keepalive: 16,
 			},
 			{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "coffee-svc",
+					ResourceType:      "virtualserverroute",
+					ResourceName:      "coffee",
+					ResourceNamespace: "default",
+				},
 				Name: "vs_default_cafe_vsr_default_coffee_coffee",
 				Servers: []version2.UpstreamServer{
 					{
@@ -415,6 +441,12 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 				Keepalive: 16,
 			},
 			{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "sub-tea-svc",
+					ResourceType:      "virtualserverroute",
+					ResourceName:      "subtea",
+					ResourceNamespace: "default",
+				},
 				Name: "vs_default_cafe_vsr_default_subtea_subtea",
 				Servers: []version2.UpstreamServer{
 					{
@@ -424,6 +456,12 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 				Keepalive: 16,
 			},
 			{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "coffee-svc",
+					ResourceType:      "virtualserverroute",
+					ResourceName:      "subcoffee",
+					ResourceNamespace: "default",
+				},
 				Name: "vs_default_cafe_vsr_default_subcoffee_coffee",
 				Servers: []version2.UpstreamServer{
 					{
@@ -433,6 +471,8 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 				Keepalive: 16,
 			},
 		},
+		HTTPSnippets:  []string{""},
+		LimitReqZones: []version2.LimitReqZone{},
 		Server: version2.Server{
 			ServerName:      "cafe.example.com",
 			StatusZone:      "cafe.example.com",
@@ -451,6 +491,8 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					HasKeepalive:             true,
+					ProxySSLName:             "tea-svc.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				{
 					Path:                     "/tea-latest",
@@ -459,6 +501,8 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					HasKeepalive:             true,
+					ProxySSLName:             "tea-svc.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				// Order changes here because we generate first all the VS Routes and then all the VSR Subroutes (separated for loops)
 				{
@@ -476,6 +520,8 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 							ResponseCode: 301,
 						},
 					},
+					ProxySSLName:            "coffee-svc.default.svc",
+					ProxyPassRequestHeaders: true,
 				},
 				{
 					Path:                     "/coffee",
@@ -484,6 +530,8 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					HasKeepalive:             true,
+					ProxySSLName:             "coffee-svc.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				{
 					Path:                     "/subtea",
@@ -492,6 +540,8 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					HasKeepalive:             true,
+					ProxySSLName:             "sub-tea-svc.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 
 				{
@@ -509,6 +559,8 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 							ResponseCode: 301,
 						},
 					},
+					ProxySSLName:            "coffee-svc.default.svc",
+					ProxyPassRequestHeaders: true,
 				},
 				{
 					Path:                     "/coffee-errorpage-subroute-defined",
@@ -525,6 +577,8 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 							ResponseCode: 200,
 						},
 					},
+					ProxySSLName:            "coffee-svc.default.svc",
+					ProxyPassRequestHeaders: true,
 				},
 			},
 			ErrorPageLocations: []version2.ErrorPageLocation{
@@ -541,10 +595,117 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 
 	isPlus := false
 	isResolverConfigured := false
-	isTLSPassthrough := true
 	tlsPemFileName := ""
-	vsc := newVirtualServerConfigurator(&baseCfgParams, isPlus, isResolverConfigured, isTLSPassthrough)
-	result, warnings := vsc.GenerateVirtualServerConfig(&virtualServerEx, tlsPemFileName)
+	ingressMTLSFileName := ""
+	vsc := newVirtualServerConfigurator(&baseCfgParams, isPlus, isResolverConfigured, &StaticConfigParams{TLSPassthrough: true})
+	jwtKeys := make(map[string]string)
+	result, warnings := vsc.GenerateVirtualServerConfig(&virtualServerEx, tlsPemFileName, jwtKeys, ingressMTLSFileName)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("GenerateVirtualServerConfig returned \n%+v but expected \n%+v", result, expected)
+	}
+
+	if len(warnings) != 0 {
+		t.Errorf("GenerateVirtualServerConfig returned warnings: %v", vsc.warnings)
+	}
+}
+
+func TestGenerateVirtualServerConfigWithSpiffeCerts(t *testing.T) {
+	virtualServerEx := VirtualServerEx{
+		VirtualServer: &conf_v1.VirtualServer{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "cafe",
+				Namespace: "default",
+			},
+			Spec: conf_v1.VirtualServerSpec{
+				Host: "cafe.example.com",
+				Upstreams: []conf_v1.Upstream{
+					{
+						Name:    "tea",
+						Service: "tea-svc",
+						Port:    80,
+					},
+				},
+				Routes: []conf_v1.Route{
+					{
+						Path: "/tea",
+						Action: &conf_v1.Action{
+							Pass: "tea",
+						},
+					},
+				},
+			},
+		},
+		Endpoints: map[string][]string{
+			"default/tea-svc:80": {
+				"10.0.0.20:80",
+			},
+		},
+	}
+
+	baseCfgParams := ConfigParams{
+		ServerTokens:    "off",
+		Keepalive:       16,
+		ServerSnippets:  []string{"# server snippet"},
+		ProxyProtocol:   true,
+		SetRealIPFrom:   []string{"0.0.0.0/0"},
+		RealIPHeader:    "X-Real-IP",
+		RealIPRecursive: true,
+	}
+
+	expected := version2.VirtualServerConfig{
+		Upstreams: []version2.Upstream{
+			{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "tea-svc",
+					ResourceType:      "virtualserver",
+					ResourceName:      "cafe",
+					ResourceNamespace: "default",
+				},
+				Name: "vs_default_cafe_tea",
+				Servers: []version2.UpstreamServer{
+					{
+						Address: "10.0.0.20:80",
+					},
+				},
+				Keepalive: 16,
+			},
+		},
+		HTTPSnippets:  []string{""},
+		LimitReqZones: []version2.LimitReqZone{},
+		Server: version2.Server{
+			ServerName:      "cafe.example.com",
+			StatusZone:      "cafe.example.com",
+			ProxyProtocol:   true,
+			ServerTokens:    "off",
+			SetRealIPFrom:   []string{"0.0.0.0/0"},
+			RealIPHeader:    "X-Real-IP",
+			RealIPRecursive: true,
+			Snippets:        []string{"# server snippet"},
+			TLSPassthrough:  true,
+			Locations: []version2.Location{
+				{
+					Path:                     "/tea",
+					ProxyPass:                "https://vs_default_cafe_tea",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
+					HasKeepalive:             true,
+					ProxySSLName:             "tea-svc.default.svc",
+					ProxyPassRequestHeaders:  true,
+				},
+			},
+		},
+		SpiffeCerts: true,
+	}
+
+	isPlus := false
+	isResolverConfigured := false
+	tlsPemFileName := ""
+	staticConfigParams := &StaticConfigParams{TLSPassthrough: true, NginxServiceMesh: true}
+	vsc := newVirtualServerConfigurator(&baseCfgParams, isPlus, isResolverConfigured, staticConfigParams)
+	jwtKeys := make(map[string]string)
+	ingressMTLSFileName := ""
+	result, warnings := vsc.GenerateVirtualServerConfig(&virtualServerEx, tlsPemFileName, jwtKeys, ingressMTLSFileName)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("GenerateVirtualServerConfig returned \n%+v but expected \n%+v", result, expected)
 	}
@@ -663,6 +824,12 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 		Upstreams: []version2.Upstream{
 			{
 				Name: "vs_default_cafe_tea-v1",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "tea-svc-v1",
+					ResourceType:      "virtualserver",
+					ResourceName:      "cafe",
+					ResourceNamespace: "default",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "10.0.0.20:80",
@@ -671,6 +838,12 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 			},
 			{
 				Name: "vs_default_cafe_tea-v2",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "tea-svc-v2",
+					ResourceType:      "virtualserver",
+					ResourceName:      "cafe",
+					ResourceNamespace: "default",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "10.0.0.21:80",
@@ -679,6 +852,12 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 			},
 			{
 				Name: "vs_default_cafe_vsr_default_coffee_coffee-v1",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "coffee-svc-v1",
+					ResourceType:      "virtualserverroute",
+					ResourceName:      "coffee",
+					ResourceNamespace: "default",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "10.0.0.30:80",
@@ -687,6 +866,12 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 			},
 			{
 				Name: "vs_default_cafe_vsr_default_coffee_coffee-v2",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "coffee-svc-v2",
+					ResourceType:      "virtualserverroute",
+					ResourceName:      "coffee",
+					ResourceNamespace: "default",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "10.0.0.31:80",
@@ -724,6 +909,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 				},
 			},
 		},
+		HTTPSnippets:  []string{""},
+		LimitReqZones: []version2.LimitReqZone{},
 		Server: version2.Server{
 			ServerName: "cafe.example.com",
 			StatusZone: "cafe.example.com",
@@ -745,6 +932,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					Internal:                 true,
+					ProxySSLName:             "tea-svc-v1.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				{
 					Path:                     "/internal_location_splits_0_split_1",
@@ -753,6 +942,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					Internal:                 true,
+					ProxySSLName:             "tea-svc-v2.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				{
 					Path:                     "/internal_location_splits_1_split_0",
@@ -761,6 +952,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					Internal:                 true,
+					ProxySSLName:             "coffee-svc-v1.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				{
 					Path:                     "/internal_location_splits_1_split_1",
@@ -769,6 +962,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					Internal:                 true,
+					ProxySSLName:             "coffee-svc-v2.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 			},
 		},
@@ -776,10 +971,11 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 
 	isPlus := false
 	isResolverConfigured := false
-	isTLSPassthrough := false
 	tlsPemFileName := ""
-	vsc := newVirtualServerConfigurator(&baseCfgParams, isPlus, isResolverConfigured, isTLSPassthrough)
-	result, warnings := vsc.GenerateVirtualServerConfig(&virtualServerEx, tlsPemFileName)
+	vsc := newVirtualServerConfigurator(&baseCfgParams, isPlus, isResolverConfigured, &StaticConfigParams{})
+	jwtKeys := make(map[string]string)
+	ingressMTLSFileName := ""
+	result, warnings := vsc.GenerateVirtualServerConfig(&virtualServerEx, tlsPemFileName, jwtKeys, ingressMTLSFileName)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("GenerateVirtualServerConfig returned \n%+v but expected \n%+v", result, expected)
 	}
@@ -902,6 +1098,12 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 	expected := version2.VirtualServerConfig{
 		Upstreams: []version2.Upstream{
 			{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "tea-svc-v1",
+					ResourceType:      "virtualserver",
+					ResourceName:      "cafe",
+					ResourceNamespace: "default",
+				},
 				Name: "vs_default_cafe_tea-v1",
 				Servers: []version2.UpstreamServer{
 					{
@@ -911,6 +1113,12 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 			},
 			{
 				Name: "vs_default_cafe_tea-v2",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "tea-svc-v2",
+					ResourceType:      "virtualserver",
+					ResourceName:      "cafe",
+					ResourceNamespace: "default",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "10.0.0.21:80",
@@ -919,6 +1127,12 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 			},
 			{
 				Name: "vs_default_cafe_vsr_default_coffee_coffee-v1",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "coffee-svc-v1",
+					ResourceType:      "virtualserverroute",
+					ResourceName:      "coffee",
+					ResourceNamespace: "default",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "10.0.0.30:80",
@@ -927,6 +1141,12 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 			},
 			{
 				Name: "vs_default_cafe_vsr_default_coffee_coffee-v2",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service:           "coffee-svc-v2",
+					ResourceType:      "virtualserverroute",
+					ResourceName:      "coffee",
+					ResourceNamespace: "default",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "10.0.0.31:80",
@@ -992,6 +1212,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 				},
 			},
 		},
+		HTTPSnippets:  []string{""},
+		LimitReqZones: []version2.LimitReqZone{},
 		Server: version2.Server{
 			ServerName: "cafe.example.com",
 			StatusZone: "cafe.example.com",
@@ -1013,6 +1235,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					Internal:                 true,
+					ProxySSLName:             "tea-svc-v2.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				{
 					Path:                     "/internal_location_matches_0_default",
@@ -1021,6 +1245,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					Internal:                 true,
+					ProxySSLName:             "tea-svc-v1.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				{
 					Path:                     "/internal_location_matches_1_match_0",
@@ -1029,6 +1255,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					Internal:                 true,
+					ProxySSLName:             "coffee-svc-v2.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 				{
 					Path:                     "/internal_location_matches_1_default",
@@ -1037,6 +1265,8 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 					ProxyNextUpstreamTimeout: "0s",
 					ProxyNextUpstreamTries:   0,
 					Internal:                 true,
+					ProxySSLName:             "coffee-svc-v1.default.svc",
+					ProxyPassRequestHeaders:  true,
 				},
 			},
 		},
@@ -1044,16 +1274,1208 @@ func TestGenerateVirtualServerConfigForVirtualServerWithMatches(t *testing.T) {
 
 	isPlus := false
 	isResolverConfigured := false
-	isTLSPassthrough := false
 	tlsPemFileName := ""
-	vsc := newVirtualServerConfigurator(&baseCfgParams, isPlus, isResolverConfigured, isTLSPassthrough)
-	result, warnings := vsc.GenerateVirtualServerConfig(&virtualServerEx, tlsPemFileName)
+	vsc := newVirtualServerConfigurator(&baseCfgParams, isPlus, isResolverConfigured, &StaticConfigParams{})
+	jwtKeys := make(map[string]string)
+	ingressMTLSFileName := ""
+	result, warnings := vsc.GenerateVirtualServerConfig(&virtualServerEx, tlsPemFileName, jwtKeys, ingressMTLSFileName)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("GenerateVirtualServerConfig returned \n%+v but expected \n%+v", result, expected)
 	}
 
 	if len(warnings) != 0 {
 		t.Errorf("GenerateVirtualServerConfig returned warnings: %v", vsc.warnings)
+	}
+}
+
+func TestGenerateVirtualServerConfigForVirtualServerWithReturns(t *testing.T) {
+	virtualServerEx := VirtualServerEx{
+		VirtualServer: &conf_v1.VirtualServer{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "returns",
+				Namespace: "default",
+			},
+			Spec: conf_v1.VirtualServerSpec{
+				Host: "example.com",
+				Routes: []conf_v1.Route{
+					{
+						Path: "/return",
+						Action: &conf_v1.Action{
+							Return: &conf_v1.ActionReturn{
+								Body: "hello 0",
+							},
+						},
+					},
+					{
+						Path: "/splits-with-return",
+						Splits: []conf_v1.Split{
+							{
+								Weight: 90,
+								Action: &conf_v1.Action{
+									Return: &conf_v1.ActionReturn{
+										Body: "hello 1",
+									},
+								},
+							},
+							{
+								Weight: 10,
+								Action: &conf_v1.Action{
+									Return: &conf_v1.ActionReturn{
+										Body: "hello 2",
+									},
+								},
+							},
+						},
+					},
+					{
+						Path: "/matches-with-return",
+						Matches: []conf_v1.Match{
+							{
+								Conditions: []conf_v1.Condition{
+									{
+										Header: "x-version",
+										Value:  "v2",
+									},
+								},
+								Action: &conf_v1.Action{
+									Return: &conf_v1.ActionReturn{
+										Body: "hello 3",
+									},
+								},
+							},
+						},
+						Action: &conf_v1.Action{
+							Return: &conf_v1.ActionReturn{
+								Body: "hello 4",
+							},
+						},
+					},
+					{
+						Path:  "/more",
+						Route: "default/more-returns",
+					},
+				},
+			},
+		},
+		VirtualServerRoutes: []*conf_v1.VirtualServerRoute{
+			{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "more-returns",
+					Namespace: "default",
+				},
+				Spec: conf_v1.VirtualServerRouteSpec{
+					Host: "example.com",
+					Subroutes: []conf_v1.Route{
+						{
+							Path: "/more/return",
+							Action: &conf_v1.Action{
+								Return: &conf_v1.ActionReturn{
+									Body: "hello 5",
+								},
+							},
+						},
+						{
+							Path: "/more/splits-with-return",
+							Splits: []conf_v1.Split{
+								{
+									Weight: 90,
+									Action: &conf_v1.Action{
+										Return: &conf_v1.ActionReturn{
+											Body: "hello 6",
+										},
+									},
+								},
+								{
+									Weight: 10,
+									Action: &conf_v1.Action{
+										Return: &conf_v1.ActionReturn{
+											Body: "hello 7",
+										},
+									},
+								},
+							},
+						},
+						{
+							Path: "/more/matches-with-return",
+							Matches: []conf_v1.Match{
+								{
+									Conditions: []conf_v1.Condition{
+										{
+											Header: "x-version",
+											Value:  "v2",
+										},
+									},
+									Action: &conf_v1.Action{
+										Return: &conf_v1.ActionReturn{
+											Body: "hello 8",
+										},
+									},
+								},
+							},
+							Action: &conf_v1.Action{
+								Return: &conf_v1.ActionReturn{
+									Body: "hello 9",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	baseCfgParams := ConfigParams{}
+
+	expected := version2.VirtualServerConfig{
+		Maps: []version2.Map{
+			{
+				Source:   "$http_x_version",
+				Variable: "$vs_default_returns_matches_0_match_0_cond_0",
+				Parameters: []version2.Parameter{
+					{
+						Value:  `"v2"`,
+						Result: "1",
+					},
+					{
+						Value:  "default",
+						Result: "0",
+					},
+				},
+			},
+			{
+				Source:   "$vs_default_returns_matches_0_match_0_cond_0",
+				Variable: "$vs_default_returns_matches_0",
+				Parameters: []version2.Parameter{
+					{
+						Value:  "~^1",
+						Result: "/internal_location_matches_0_match_0",
+					},
+					{
+						Value:  "default",
+						Result: "/internal_location_matches_0_default",
+					},
+				},
+			},
+			{
+				Source:   "$http_x_version",
+				Variable: "$vs_default_returns_matches_1_match_0_cond_0",
+				Parameters: []version2.Parameter{
+					{
+						Value:  `"v2"`,
+						Result: "1",
+					},
+					{
+						Value:  "default",
+						Result: "0",
+					},
+				},
+			},
+			{
+				Source:   "$vs_default_returns_matches_1_match_0_cond_0",
+				Variable: "$vs_default_returns_matches_1",
+				Parameters: []version2.Parameter{
+					{
+						Value:  "~^1",
+						Result: "/internal_location_matches_1_match_0",
+					},
+					{
+						Value:  "default",
+						Result: "/internal_location_matches_1_default",
+					},
+				},
+			},
+		},
+		SplitClients: []version2.SplitClient{
+			{
+				Source:   "$request_id",
+				Variable: "$vs_default_returns_splits_0",
+				Distributions: []version2.Distribution{
+					{
+						Weight: "90%",
+						Value:  "/internal_location_splits_0_split_0",
+					},
+					{
+						Weight: "10%",
+						Value:  "/internal_location_splits_0_split_1",
+					},
+				},
+			},
+			{
+				Source:   "$request_id",
+				Variable: "$vs_default_returns_splits_1",
+				Distributions: []version2.Distribution{
+					{
+						Weight: "90%",
+						Value:  "/internal_location_splits_1_split_0",
+					},
+					{
+						Weight: "10%",
+						Value:  "/internal_location_splits_1_split_1",
+					},
+				},
+			},
+		},
+		HTTPSnippets:  []string{""},
+		LimitReqZones: []version2.LimitReqZone{},
+		Server: version2.Server{
+			ServerName: "example.com",
+			StatusZone: "example.com",
+			InternalRedirectLocations: []version2.InternalRedirectLocation{
+				{
+					Path:        "/splits-with-return",
+					Destination: "$vs_default_returns_splits_0",
+				},
+				{
+					Path:        "/matches-with-return",
+					Destination: "$vs_default_returns_matches_0",
+				},
+				{
+					Path:        "/more/splits-with-return",
+					Destination: "$vs_default_returns_splits_1",
+				},
+				{
+					Path:        "/more/matches-with-return",
+					Destination: "$vs_default_returns_matches_1",
+				},
+			},
+			ReturnLocations: []version2.ReturnLocation{
+				{
+					Name:        "@return_0",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 0",
+					},
+				},
+				{
+					Name:        "@return_1",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 1",
+					},
+				},
+				{
+					Name:        "@return_2",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 2",
+					},
+				},
+				{
+					Name:        "@return_3",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 3",
+					},
+				},
+				{
+					Name:        "@return_4",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 4",
+					},
+				},
+				{
+					Name:        "@return_5",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 5",
+					},
+				},
+				{
+					Name:        "@return_6",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 6",
+					},
+				},
+				{
+					Name:        "@return_7",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 7",
+					},
+				},
+				{
+					Name:        "@return_8",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 8",
+					},
+				},
+				{
+					Name:        "@return_9",
+					DefaultType: "text/plain",
+					Return: version2.Return{
+						Code: 0,
+						Text: "hello 9",
+					},
+				},
+			},
+			Locations: []version2.Location{
+				{
+					Path:                 "/return",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_0",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/internal_location_splits_0_split_0",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_1",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/internal_location_splits_0_split_1",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_2",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/internal_location_matches_0_match_0",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_3",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/internal_location_matches_0_default",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_4",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/more/return",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_5",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/internal_location_splits_1_split_0",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_6",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/internal_location_splits_1_split_1",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_7",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/internal_location_matches_1_match_0",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_8",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+				{
+					Path:                 "/internal_location_matches_1_default",
+					ProxyInterceptErrors: true,
+					ErrorPages: []version2.ErrorPage{
+						{
+							Name:         "@return_9",
+							Codes:        "418",
+							ResponseCode: 200,
+						},
+					},
+					InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+				},
+			},
+		},
+	}
+
+	isPlus := false
+	isResolverConfigured := false
+	tlsPemFileName := ""
+	vsc := newVirtualServerConfigurator(&baseCfgParams, isPlus, isResolverConfigured, &StaticConfigParams{})
+	jwtKeys := make(map[string]string)
+	ingressMTLSFileName := ""
+	result, warnings := vsc.GenerateVirtualServerConfig(&virtualServerEx, tlsPemFileName, jwtKeys, ingressMTLSFileName)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("GenerateVirtualServerConfig returned \n%+v but expected \n%+v", result, expected)
+	}
+
+	if len(warnings) != 0 {
+		t.Errorf("GenerateVirtualServerConfig returned warnings: %v", vsc.warnings)
+	}
+}
+
+func TestGeneratePolicies(t *testing.T) {
+	var owner runtime.Object // nil is OK for the unit test
+	ownerNamespace := "default"
+	vsNamespace := "default"
+	vsName := "test"
+	ingressMTLSCertPath := "/etc/nginx/secrets/default-ingress-mtls-secret"
+	tlsPemFileName := "/etc/nginx/secrets/default-tls-secret"
+
+	tests := []struct {
+		policyRefs []conf_v1.PolicyReference
+		policies   map[string]*conf_v1alpha1.Policy
+		jwtKeys    map[string]string
+		context    string
+		expected   policiesCfg
+		msg        string
+	}{
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "allow-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/allow-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						AccessControl: &conf_v1alpha1.AccessControl{
+							Allow: []string{"127.0.0.1"},
+						},
+					},
+				},
+			},
+			jwtKeys: nil,
+			expected: policiesCfg{
+				Allow: []string{"127.0.0.1"},
+			},
+			msg: "explicit reference",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name: "allow-policy",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/allow-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						AccessControl: &conf_v1alpha1.AccessControl{
+							Allow: []string{"127.0.0.1"},
+						},
+					},
+				},
+			},
+			expected: policiesCfg{
+				Allow: []string{"127.0.0.1"},
+			},
+			msg: "implicit reference",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name: "allow-policy-1",
+				},
+				{
+					Name: "allow-policy-2",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/allow-policy-1": {
+					Spec: conf_v1alpha1.PolicySpec{
+						AccessControl: &conf_v1alpha1.AccessControl{
+							Allow: []string{"127.0.0.1"},
+						},
+					},
+				},
+				"default/allow-policy-2": {
+					Spec: conf_v1alpha1.PolicySpec{
+						AccessControl: &conf_v1alpha1.AccessControl{
+							Allow: []string{"127.0.0.2"},
+						},
+					},
+				},
+			},
+			jwtKeys: nil,
+			expected: policiesCfg{
+				Allow: []string{"127.0.0.1", "127.0.0.2"},
+			},
+			msg: "merging",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "rateLimit-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/rateLimit-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						RateLimit: &conf_v1alpha1.RateLimit{
+							Key:      "test",
+							ZoneSize: "10M",
+							Rate:     "10r/s",
+							LogLevel: "notice",
+						},
+					},
+				},
+			},
+			jwtKeys: nil,
+			expected: policiesCfg{
+				LimitReqZones: []version2.LimitReqZone{
+					{
+						Key:      "test",
+						ZoneSize: "10M",
+						Rate:     "10r/s",
+						ZoneName: "pol_rl_default_rateLimit-policy_default_test",
+					},
+				},
+				LimitReqOptions: version2.LimitReqOptions{
+					LogLevel:   "notice",
+					RejectCode: 503,
+				},
+				LimitReqs: []version2.LimitReq{
+					{
+						ZoneName: "pol_rl_default_rateLimit-policy_default_test",
+					},
+				},
+			},
+			msg: "rate limit reference",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "rateLimit-policy",
+					Namespace: "default",
+				},
+				{
+					Name:      "rateLimit-policy2",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/rateLimit-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						RateLimit: &conf_v1alpha1.RateLimit{
+							Key:      "test",
+							ZoneSize: "10M",
+							Rate:     "10r/s",
+						},
+					},
+				},
+				"default/rateLimit-policy2": {
+					Spec: conf_v1alpha1.PolicySpec{
+						RateLimit: &conf_v1alpha1.RateLimit{
+							Key:      "test2",
+							ZoneSize: "20M",
+							Rate:     "20r/s",
+						},
+					},
+				},
+			},
+			jwtKeys: nil,
+			expected: policiesCfg{
+				LimitReqZones: []version2.LimitReqZone{
+					{
+						Key:      "test",
+						ZoneSize: "10M",
+						Rate:     "10r/s",
+						ZoneName: "pol_rl_default_rateLimit-policy_default_test",
+					},
+					{
+						Key:      "test2",
+						ZoneSize: "20M",
+						Rate:     "20r/s",
+						ZoneName: "pol_rl_default_rateLimit-policy2_default_test",
+					},
+				},
+				LimitReqOptions: version2.LimitReqOptions{
+					LogLevel:   "error",
+					RejectCode: 503,
+				},
+				LimitReqs: []version2.LimitReq{
+					{
+						ZoneName: "pol_rl_default_rateLimit-policy_default_test",
+					},
+					{
+						ZoneName: "pol_rl_default_rateLimit-policy2_default_test",
+					},
+				},
+			},
+			msg: "multi rate limit reference",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "jwt-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/jwt-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						JWTAuth: &conf_v1alpha1.JWTAuth{
+							Realm:  "My Test API",
+							Secret: "jwt-secret",
+						},
+					},
+				},
+			},
+			jwtKeys: map[string]string{
+				"default/jwt-secret": "/etc/nginx/secrets/default-jwt-secret",
+			},
+			expected: policiesCfg{
+				JWTAuth: &version2.JWTAuth{
+					Secret: "/etc/nginx/secrets/default-jwt-secret",
+					Realm:  "My Test API",
+				},
+			},
+			msg: "jwt reference",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "ingress-mtls-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/ingress-mtls-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "ingress-mtls-secret",
+							VerifyClient:     "off",
+						},
+					},
+				},
+			},
+			jwtKeys: nil,
+			context: "spec",
+			expected: policiesCfg{
+				IngressMTLS: &version2.IngressMTLS{
+					ClientCert:   ingressMTLSCertPath,
+					VerifyClient: "off",
+					VerifyDepth:  1,
+				},
+			},
+			msg: "ingressMTLS reference",
+		},
+	}
+
+	vsc := newVirtualServerConfigurator(&ConfigParams{}, false, false, &StaticConfigParams{})
+
+	for _, test := range tests {
+		result := vsc.generatePolicies(owner, ownerNamespace, vsNamespace, vsName, test.policyRefs, test.policies, test.jwtKeys, ingressMTLSCertPath, test.context, tlsPemFileName)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generatePolicies() returned \n%+v but expected \n%+v for the case of %s", result, test.expected,
+				test.msg)
+		}
+		if len(vsc.warnings) > 0 {
+			t.Errorf("generatePolicies() returned unexpected warnings %v for the case of %s", vsc.warnings, test.msg)
+		}
+	}
+}
+
+func TestGeneratePoliciesFails(t *testing.T) {
+	var owner runtime.Object // nil is OK for the unit test
+	ownerNamespace := "default"
+	vsNamespace := "default"
+	vsName := "test"
+
+	dryRunOverride := true
+	rejectCodeOverride := 505
+
+	tests := []struct {
+		policyRefs          []conf_v1.PolicyReference
+		policies            map[string]*conf_v1alpha1.Policy
+		jwtKeys             map[string]string
+		ingressMTLSFileName string
+		tlsPemFileName      string
+		context             string
+		expected            policiesCfg
+		expectedWarnings    Warnings
+		msg                 string
+	}{
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "allow-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{},
+			jwtKeys:  nil,
+			expected: policiesCfg{
+				ErrorReturn: &version2.Return{
+					Code: 500,
+				},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					"Policy default/allow-policy is missing or invalid",
+				},
+			},
+			msg: "missing policy",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name: "allow-policy",
+				},
+				{
+					Name: "deny-policy",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/allow-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						AccessControl: &conf_v1alpha1.AccessControl{
+							Allow: []string{"127.0.0.1"},
+						},
+					},
+				},
+				"default/deny-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						AccessControl: &conf_v1alpha1.AccessControl{
+							Deny: []string{"127.0.0.2"},
+						},
+					},
+				},
+			},
+			jwtKeys: nil,
+			expected: policiesCfg{
+				Allow: []string{"127.0.0.1"},
+				Deny:  []string{"127.0.0.2"},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					"AccessControl policy (or policies) with deny rules is overridden by policy (or policies) with allow rules",
+				},
+			},
+			msg: "conflicting policies",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "rateLimit-policy",
+					Namespace: "default",
+				},
+				{
+					Name:      "rateLimit-policy2",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/rateLimit-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						RateLimit: &conf_v1alpha1.RateLimit{
+							Key:      "test",
+							ZoneSize: "10M",
+							Rate:     "10r/s",
+						},
+					},
+				},
+				"default/rateLimit-policy2": {
+					Spec: conf_v1alpha1.PolicySpec{
+						RateLimit: &conf_v1alpha1.RateLimit{
+							Key:        "test2",
+							ZoneSize:   "20M",
+							Rate:       "20r/s",
+							DryRun:     &dryRunOverride,
+							LogLevel:   "info",
+							RejectCode: &rejectCodeOverride,
+						},
+					},
+				},
+			},
+			jwtKeys: nil,
+			expected: policiesCfg{
+				LimitReqZones: []version2.LimitReqZone{
+					{
+						Key:      "test",
+						ZoneSize: "10M",
+						Rate:     "10r/s",
+						ZoneName: "pol_rl_default_rateLimit-policy_default_test",
+					},
+					{
+						Key:      "test2",
+						ZoneSize: "20M",
+						Rate:     "20r/s",
+						ZoneName: "pol_rl_default_rateLimit-policy2_default_test",
+					},
+				},
+				LimitReqOptions: version2.LimitReqOptions{
+					LogLevel:   "error",
+					RejectCode: 503,
+				},
+				LimitReqs: []version2.LimitReq{
+					{
+						ZoneName: "pol_rl_default_rateLimit-policy_default_test",
+					},
+					{
+						ZoneName: "pol_rl_default_rateLimit-policy2_default_test",
+					},
+				},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					`RateLimit policy "default/rateLimit-policy2" with limit request option dryRun=true is overridden to dryRun=false by the first policy reference in this context`,
+					`RateLimit policy "default/rateLimit-policy2" with limit request option logLevel=info is overridden to logLevel=error by the first policy reference in this context`,
+					`RateLimit policy "default/rateLimit-policy2" with limit request option rejectCode=505 is overridden to rejectCode=503 by the first policy reference in this context`,
+				},
+			},
+			msg: "rate limit policy limit request option override",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "jwt-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/jwt-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						JWTAuth: &conf_v1alpha1.JWTAuth{
+							Realm:  "test",
+							Secret: "jwt-secret",
+						},
+					},
+				},
+			},
+			jwtKeys: nil,
+			expected: policiesCfg{
+				ErrorReturn: &version2.Return{
+					Code: 500,
+				},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					`JWT policy "default/jwt-policy" references a JWKSecret "default/jwt-secret" which does not exist`,
+				},
+			},
+			msg: "jwt reference missing secret",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "jwt-policy",
+					Namespace: "default",
+				},
+				{
+					Name:      "jwt-policy2",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/jwt-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						JWTAuth: &conf_v1alpha1.JWTAuth{
+							Realm:  "test",
+							Secret: "jwt-secret",
+						},
+					},
+				},
+				"default/jwt-policy2": {
+					Spec: conf_v1alpha1.PolicySpec{
+						JWTAuth: &conf_v1alpha1.JWTAuth{
+							Realm:  "test",
+							Secret: "jwt-secret2",
+						},
+					},
+				},
+			},
+			jwtKeys: map[string]string{
+				"default/jwt-secret":  "/etc/nginx/secrets/default-jwt-secret",
+				"default/jwt-secret2": "",
+			},
+			expected: policiesCfg{
+				JWTAuth: &version2.JWTAuth{
+					Secret: "/etc/nginx/secrets/default-jwt-secret",
+					Realm:  "test",
+				},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					`Multiple jwt policies in the same context is not valid. JWT policy "default/jwt-policy2" will be ignored`,
+				},
+			},
+			msg: "multi jwt reference",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "ingress-mtls-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/ingress-mtls-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "ingress-mtls-secret",
+						},
+					},
+				},
+			},
+			jwtKeys:        nil,
+			context:        "spec",
+			tlsPemFileName: "/etc/nginx/secrets/default-tls-secret",
+			expected: policiesCfg{
+				ErrorReturn: &version2.Return{
+					Code: 500,
+				},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					`IngressMTLS policy "default/ingress-mtls-policy" references a Secret which does not exist`,
+				},
+			},
+			msg: "ingress mtls reference missing secret",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "ingress-mtls-policy",
+					Namespace: "default",
+				},
+				{
+					Name:      "ingress-mtls-policy2",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/ingress-mtls-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "ingress-mtls-secret",
+						},
+					},
+				},
+				"default/ingress-mtls-policy2": {
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "ingress-mtls-secret2",
+						},
+					},
+				},
+			},
+			jwtKeys:             nil,
+			context:             "spec",
+			ingressMTLSFileName: "/etc/nginx/secrets/default-ingress-mtls-secret",
+			tlsPemFileName:      "/etc/nginx/secrets/default-tls-secret",
+			expected: policiesCfg{
+				IngressMTLS: &version2.IngressMTLS{
+					ClientCert:   "/etc/nginx/secrets/default-ingress-mtls-secret",
+					VerifyClient: "on",
+					VerifyDepth:  1,
+				},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					`Multiple ingressMTLS policies are not allowed. IngressMTLS policy "default/ingress-mtls-policy2" will be ignored`,
+				},
+			},
+			msg: "multi ingress mtls",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "ingress-mtls-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/ingress-mtls-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "ingress-mtls-secret",
+						},
+					},
+				},
+			},
+			jwtKeys:             nil,
+			ingressMTLSFileName: "/etc/nginx/secrets/default-ingress-mtls-secret",
+			tlsPemFileName:      "/etc/nginx/secrets/default-tls-secret",
+			context:             "route",
+			expected: policiesCfg{
+				ErrorReturn: &version2.Return{
+					Code: 500,
+				},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					`IngressMTLS policy is not allowed in the route context`,
+				},
+			},
+			msg: "ingress mtls reference missing secret",
+		},
+		{
+			policyRefs: []conf_v1.PolicyReference{
+				{
+					Name:      "ingress-mtls-policy",
+					Namespace: "default",
+				},
+			},
+			policies: map[string]*conf_v1alpha1.Policy{
+				"default/ingress-mtls-policy": {
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "ingress-mtls-secret",
+						},
+					},
+				},
+			},
+			jwtKeys:             nil,
+			ingressMTLSFileName: "/etc/nginx/secrets/default-ingress-mtls-secret",
+			context:             "route",
+			expected: policiesCfg{
+				ErrorReturn: &version2.Return{
+					Code: 500,
+				},
+			},
+			expectedWarnings: map[runtime.Object][]string{
+				nil: {
+					`TLS configuration needed for IngressMTLS policy`,
+				},
+			},
+			msg: "ingress mtls missing TLS config",
+		},
+	}
+
+	for _, test := range tests {
+		vsc := newVirtualServerConfigurator(&ConfigParams{}, false, false, &StaticConfigParams{})
+
+		result := vsc.generatePolicies(owner, ownerNamespace, vsNamespace, vsName, test.policyRefs, test.policies, test.jwtKeys, test.ingressMTLSFileName, test.context, test.tlsPemFileName)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generatePolicies() returned \n%+v but expected \n%+v for the case of %s", result, test.expected,
+				test.msg)
+		}
+		if !reflect.DeepEqual(vsc.warnings, test.expectedWarnings) {
+			t.Errorf("generatePolicies() returned warnings of \n%v but expected \n%v for the case of %s", vsc.warnings, test.expectedWarnings, test.msg)
+		}
+	}
+}
+
+func TestRemoveDuplicates(t *testing.T) {
+	tests := []struct {
+		rlz      []version2.LimitReqZone
+		expected []version2.LimitReqZone
+	}{
+		{
+			rlz: []version2.LimitReqZone{
+				{ZoneName: "test"},
+				{ZoneName: "test"},
+				{ZoneName: "test2"},
+				{ZoneName: "test3"},
+			},
+			expected: []version2.LimitReqZone{
+				{ZoneName: "test"},
+				{ZoneName: "test2"},
+				{ZoneName: "test3"},
+			},
+		},
+		{
+			rlz: []version2.LimitReqZone{
+				{ZoneName: "test"},
+				{ZoneName: "test"},
+				{ZoneName: "test2"},
+				{ZoneName: "test3"},
+				{ZoneName: "test3"},
+			},
+			expected: []version2.LimitReqZone{
+				{ZoneName: "test"},
+				{ZoneName: "test2"},
+				{ZoneName: "test3"},
+			},
+		},
+	}
+	for _, test := range tests {
+		result := removeDuplicateLimitReqZones(test.rlz)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("removeDuplicateLimitReqZones() returned \n%v, but expected \n%v", result, test.expected)
+		}
+	}
+}
+
+func TestAddPoliciesCfgToLocations(t *testing.T) {
+	cfg := policiesCfg{
+		Allow: []string{"127.0.0.1"},
+		Deny:  []string{"127.0.0.2"},
+		ErrorReturn: &version2.Return{
+			Code: 400,
+		},
+	}
+
+	locations := []version2.Location{
+		{
+			Path: "/",
+		},
+	}
+
+	expectedLocations := []version2.Location{
+		{
+			Path:  "/",
+			Allow: []string{"127.0.0.1"},
+			Deny:  []string{"127.0.0.2"},
+			PoliciesErrorReturn: &version2.Return{
+				Code: 400,
+			},
+		},
+	}
+
+	addPoliciesCfgToLocations(cfg, locations)
+	if !reflect.DeepEqual(locations, expectedLocations) {
+		t.Errorf("addPoliciesCfgToLocations() returned \n%+v but expected \n%+v", locations, expectedLocations)
 	}
 }
 
@@ -1074,6 +2496,9 @@ func TestGenerateUpstream(t *testing.T) {
 
 	expected := version2.Upstream{
 		Name: "test-upstream",
+		UpstreamLabels: version2.UpstreamLabels{
+			Service: "test-upstream",
+		},
 		Servers: []version2.UpstreamServer{
 			{
 				Address: "192.168.10.10:8080",
@@ -1087,8 +2512,8 @@ func TestGenerateUpstream(t *testing.T) {
 		UpstreamZoneSize: "256k",
 	}
 
-	vsc := newVirtualServerConfigurator(&cfgParams, false, false, false)
-	result := vsc.generateUpstream(&conf_v1.VirtualServer{}, name, upstream, false, endpoints)
+	vsc := newVirtualServerConfigurator(&cfgParams, false, false, &StaticConfigParams{})
+	result := vsc.generateUpstream(nil, name, upstream, false, endpoints)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateUpstream() returned %v but expected %v", result, expected)
 	}
@@ -1117,6 +2542,9 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 			&ConfigParams{Keepalive: 21},
 			version2.Upstream{
 				Name: "test-upstream",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service: "test-upstream",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "192.168.10.10:8080",
@@ -1131,6 +2559,9 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 			&ConfigParams{Keepalive: 21},
 			version2.Upstream{
 				Name: "test-upstream",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service: "test-upstream",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "192.168.10.10:8080",
@@ -1145,6 +2576,9 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 			&ConfigParams{Keepalive: 21},
 			version2.Upstream{
 				Name: "test-upstream",
+				UpstreamLabels: version2.UpstreamLabels{
+					Service: "test-upstream",
+				},
 				Servers: []version2.UpstreamServer{
 					{
 						Address: "192.168.10.10:8080",
@@ -1156,8 +2590,8 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		vsc := newVirtualServerConfigurator(test.cfgParams, false, false, false)
-		result := vsc.generateUpstream(&conf_v1.VirtualServer{}, name, test.upstream, false, endpoints)
+		vsc := newVirtualServerConfigurator(test.cfgParams, false, false, &StaticConfigParams{})
+		result := vsc.generateUpstream(nil, name, test.upstream, false, endpoints)
 		if !reflect.DeepEqual(result, test.expected) {
 			t.Errorf("generateUpstream() returned %v but expected %v for the case of %v", result, test.expected, test.msg)
 		}
@@ -1176,6 +2610,9 @@ func TestGenerateUpstreamForExternalNameService(t *testing.T) {
 
 	expected := version2.Upstream{
 		Name: name,
+		UpstreamLabels: version2.UpstreamLabels{
+			Service: "test-upstream",
+		},
 		Servers: []version2.UpstreamServer{
 			{
 				Address: "example.com",
@@ -1184,8 +2621,8 @@ func TestGenerateUpstreamForExternalNameService(t *testing.T) {
 		Resolve: true,
 	}
 
-	vsc := newVirtualServerConfigurator(&cfgParams, true, true, false)
-	result := vsc.generateUpstream(&conf_v1.VirtualServer{}, name, upstream, true, endpoints)
+	vsc := newVirtualServerConfigurator(&cfgParams, true, true, &StaticConfigParams{})
+	result := vsc.generateUpstream(nil, name, upstream, true, endpoints)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateUpstream() returned %v but expected %v", result, expected)
 	}
@@ -1229,7 +2666,7 @@ func TestGenerateProxyPass(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := generateProxyPass(test.tlsEnabled, test.upstreamName, test.internal)
+		result := generateProxyPass(test.tlsEnabled, test.upstreamName, test.internal, nil)
 		if result != test.expected {
 			t.Errorf("generateProxyPass(%v, %v, %v) returned %v but expected %v", test.tlsEnabled, test.upstreamName, test.internal, result, test.expected)
 		}
@@ -1286,6 +2723,46 @@ func TestGenerateString(t *testing.T) {
 	}
 }
 
+func TestGenerateSnippets(t *testing.T) {
+	tests := []struct {
+		enableSnippets bool
+		s              string
+		defaultS       []string
+		expected       []string
+	}{
+		{
+			true,
+			"test",
+			[]string{""},
+			[]string{"test"},
+		},
+		{
+			true,
+			"",
+			[]string{"default"},
+			[]string{"default"},
+		},
+		{
+			true,
+			"test\none\ntwo",
+			[]string{""},
+			[]string{"test", "one", "two"},
+		},
+		{
+			false,
+			"test",
+			nil,
+			nil,
+		},
+	}
+	for _, test := range tests {
+		result := generateSnippets(test.enableSnippets, test.s, test.defaultS)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateSnippets() return %v, but expected %v", result, test.expected)
+		}
+	}
+}
+
 func TestGenerateBuffer(t *testing.T) {
 	tests := []struct {
 		inputS   *conf_v1.UpstreamBuffers
@@ -1323,10 +2800,11 @@ func TestGenerateLocationForProxying(t *testing.T) {
 	}
 	path := "/"
 	upstreamName := "test-upstream"
+	vsLocSnippets := []string{"# vs location snippet"}
 
 	expected := version2.Location{
 		Path:                     "/",
-		Snippets:                 []string{"# location snippet"},
+		Snippets:                 vsLocSnippets,
 		ProxyConnectTimeout:      "30s",
 		ProxyReadTimeout:         "31s",
 		ProxySendTimeout:         "32s",
@@ -1339,11 +2817,12 @@ func TestGenerateLocationForProxying(t *testing.T) {
 		ProxyNextUpstream:        "error timeout",
 		ProxyNextUpstreamTimeout: "0s",
 		ProxyNextUpstreamTries:   0,
+		ProxyPassRequestHeaders:  true,
 	}
 
-	result := generateLocationForProxying(path, upstreamName, conf_v1.Upstream{}, &cfgParams, nil, false, 0)
+	result := generateLocationForProxying(path, upstreamName, conf_v1.Upstream{}, &cfgParams, nil, false, 0, "", nil, "", vsLocSnippets)
 	if !reflect.DeepEqual(result, expected) {
-		t.Errorf("generateLocationForProxying() returned %v but expected %v", result, expected)
+		t.Errorf("generateLocationForProxying() returned \n%v but expected \n%v", result, expected)
 	}
 }
 
@@ -1383,30 +2862,144 @@ func TestGenerateReturnBlock(t *testing.T) {
 
 }
 
-func TestGenerateLocationForReturnBlock(t *testing.T) {
-	cfgParams := ConfigParams{
-		LocationSnippets: []string{"# location snippet"},
-	}
-	defaultType := "application/json"
-	path := "/"
-	returnBlock := &version2.Return{
-		Code: 301,
-		Text: "http://www.nginx.com",
-	}
+func TestGenerateLocationForReturn(t *testing.T) {
+	tests := []struct {
+		actionReturn           *conf_v1.ActionReturn
+		expectedLocation       version2.Location
+		expectedReturnLocation *version2.ReturnLocation
+		msg                    string
+	}{
+		{
+			actionReturn: &conf_v1.ActionReturn{
+				Body: "hello",
+			},
 
-	expected := version2.Location{
-		Path:        "/",
-		Snippets:    []string{"# location snippet"},
-		DefaultType: defaultType,
-		Return: &version2.Return{
-			Text: "http://www.nginx.com",
-			Code: 301,
+			expectedLocation: version2.Location{
+				Path:     "/",
+				Snippets: []string{"# location snippet"},
+				ErrorPages: []version2.ErrorPage{
+					{
+						Name:         "@return_1",
+						Codes:        "418",
+						ResponseCode: 200,
+					},
+				},
+				ProxyInterceptErrors: true,
+				InternalProxyPass:    "http://unix:/var/lib/nginx/nginx-418-server.sock",
+			},
+			expectedReturnLocation: &version2.ReturnLocation{
+				Name:        "@return_1",
+				DefaultType: "text/plain",
+				Return: version2.Return{
+					Code: 0,
+					Text: "hello",
+				},
+			},
+			msg: "return without code and type",
+		},
+		{
+			actionReturn: &conf_v1.ActionReturn{
+				Code: 400,
+				Type: "text/html",
+				Body: "hello",
+			},
+
+			expectedLocation: version2.Location{
+				Path:     "/",
+				Snippets: []string{"# location snippet"},
+				ErrorPages: []version2.ErrorPage{
+					{
+						Name:         "@return_1",
+						Codes:        "418",
+						ResponseCode: 400,
+					},
+				},
+				ProxyInterceptErrors: true,
+				InternalProxyPass:    "http://unix:/var/lib/nginx/nginx-418-server.sock",
+			},
+			expectedReturnLocation: &version2.ReturnLocation{
+				Name:        "@return_1",
+				DefaultType: "text/html",
+				Return: version2.Return{
+					Code: 0,
+					Text: "hello",
+				},
+			},
+			msg: "return with all fields defined",
+		},
+	}
+	path := "/"
+	snippets := []string{"# location snippet"}
+	returnLocationIndex := 1
+
+	for _, test := range tests {
+		location, returnLocation := generateLocationForReturn(path, snippets, test.actionReturn, returnLocationIndex)
+		if !reflect.DeepEqual(location, test.expectedLocation) {
+			t.Errorf("generateLocationForReturn() returned  \n%+v but expected \n%+v for the case of %s",
+				location, test.expectedLocation, test.msg)
+		}
+		if !reflect.DeepEqual(returnLocation, test.expectedReturnLocation) {
+			t.Errorf("generateLocationForReturn() returned  \n%+v but expected \n%+v for the case of %s",
+				returnLocation, test.expectedReturnLocation, test.msg)
+		}
+	}
+}
+
+func TestGenerateLocationForRedirect(t *testing.T) {
+	tests := []struct {
+		redirect *conf_v1.ActionRedirect
+		expected version2.Location
+		msg      string
+	}{
+		{
+			redirect: &conf_v1.ActionRedirect{
+				URL: "http://nginx.org",
+			},
+
+			expected: version2.Location{
+				Path:     "/",
+				Snippets: []string{"# location snippet"},
+				ErrorPages: []version2.ErrorPage{
+					{
+						Name:         "http://nginx.org",
+						Codes:        "418",
+						ResponseCode: 301,
+					},
+				},
+				ProxyInterceptErrors: true,
+				InternalProxyPass:    "http://unix:/var/lib/nginx/nginx-418-server.sock",
+			},
+			msg: "redirect without code",
+		},
+		{
+			redirect: &conf_v1.ActionRedirect{
+				Code: 302,
+				URL:  "http://nginx.org",
+			},
+
+			expected: version2.Location{
+				Path:     "/",
+				Snippets: []string{"# location snippet"},
+				ErrorPages: []version2.ErrorPage{
+					{
+						Name:         "http://nginx.org",
+						Codes:        "418",
+						ResponseCode: 302,
+					},
+				},
+				ProxyInterceptErrors: true,
+				InternalProxyPass:    "http://unix:/var/lib/nginx/nginx-418-server.sock",
+			},
+			msg: "redirect with all fields defined",
 		},
 	}
 
-	result := generateLocationForReturnBlock(path, cfgParams.LocationSnippets, returnBlock, defaultType)
-	if !reflect.DeepEqual(result, expected) {
-		t.Errorf("generateLocationForReturnBlock() returned %v but expected %v", result, expected)
+	for _, test := range tests {
+		result := generateLocationForRedirect("/", []string{"# location snippet"}, test.redirect)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateLocationForReturn() returned \n%+v but expected \n%+v for the case of %s",
+				result, test.expected, test.msg)
+		}
 	}
 }
 
@@ -1678,6 +3271,12 @@ func TestCreateUpstreamsForPlus(t *testing.T) {
 	expected := []version2.Upstream{
 		{
 			Name: "vs_default_cafe_tea",
+			UpstreamLabels: version2.UpstreamLabels{
+				Service:           "tea-svc",
+				ResourceType:      "virtualserver",
+				ResourceNamespace: "default",
+				ResourceName:      "cafe",
+			},
 			Servers: []version2.UpstreamServer{
 				{
 					Address: "10.0.0.20:80",
@@ -1685,11 +3284,23 @@ func TestCreateUpstreamsForPlus(t *testing.T) {
 			},
 		},
 		{
-			Name:    "vs_default_cafe_test",
+			Name: "vs_default_cafe_test",
+			UpstreamLabels: version2.UpstreamLabels{
+				Service:           "test-svc",
+				ResourceType:      "virtualserver",
+				ResourceNamespace: "default",
+				ResourceName:      "cafe",
+			},
 			Servers: nil,
 		},
 		{
 			Name: "vs_default_cafe_subselector-test",
+			UpstreamLabels: version2.UpstreamLabels{
+				Service:           "test-svc",
+				ResourceType:      "virtualserver",
+				ResourceNamespace: "default",
+				ResourceName:      "cafe",
+			},
 			Servers: []version2.UpstreamServer{
 				{
 					Address: "10.0.0.30:80",
@@ -1698,6 +3309,12 @@ func TestCreateUpstreamsForPlus(t *testing.T) {
 		},
 		{
 			Name: "vs_default_cafe_vsr_default_coffee_coffee",
+			UpstreamLabels: version2.UpstreamLabels{
+				Service:           "coffee-svc",
+				ResourceType:      "virtualserverroute",
+				ResourceNamespace: "default",
+				ResourceName:      "coffee",
+			},
 			Servers: []version2.UpstreamServer{
 				{
 					Address: "10.0.0.40:80",
@@ -1706,6 +3323,12 @@ func TestCreateUpstreamsForPlus(t *testing.T) {
 		},
 		{
 			Name: "vs_default_cafe_vsr_default_coffee_subselector-test",
+			UpstreamLabels: version2.UpstreamLabels{
+				Service:           "test-svc",
+				ResourceType:      "virtualserverroute",
+				ResourceNamespace: "default",
+				ResourceName:      "coffee",
+			},
 			Servers: []version2.UpstreamServer{
 				{
 					Address: "10.0.0.50:80",
@@ -1714,7 +3337,7 @@ func TestCreateUpstreamsForPlus(t *testing.T) {
 		},
 	}
 
-	result := createUpstreamsForPlus(&virtualServerEx, &ConfigParams{})
+	result := createUpstreamsForPlus(&virtualServerEx, &ConfigParams{}, &StaticConfigParams{})
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("createUpstreamsForPlus returned \n%v but expected \n%v", result, expected)
 	}
@@ -1757,17 +3380,29 @@ func TestCreateUpstreamServersConfigForPlusNoUpstreams(t *testing.T) {
 }
 
 func TestGenerateSplits(t *testing.T) {
+	originalPath := "/path"
 	splits := []conf_v1.Split{
 		{
 			Weight: 90,
 			Action: &conf_v1.Action{
-				Pass: "coffee-v1",
+				Proxy: &conf_v1.ActionProxy{
+					Upstream:    "coffee-v1",
+					RewritePath: "/rewrite",
+				},
 			},
 		},
 		{
-			Weight: 10,
+			Weight: 9,
 			Action: &conf_v1.Action{
 				Pass: "coffee-v2",
+			},
+		},
+		{
+			Weight: 1,
+			Action: &conf_v1.Action{
+				Return: &conf_v1.ActionReturn{
+					Body: "hello",
+				},
 			},
 		},
 	}
@@ -1782,7 +3417,16 @@ func TestGenerateSplits(t *testing.T) {
 	variableNamer := newVariableNamer(&virtualServer)
 	scIndex := 1
 	cfgParams := ConfigParams{}
-	crUpstreams := make(map[string]conf_v1.Upstream)
+	crUpstreams := map[string]conf_v1.Upstream{
+		"vs_default_cafe_coffee-v1": {
+			Service: "coffee-v1",
+		},
+		"vs_default_cafe_coffee-v2": {
+			Service: "coffee-v2",
+		},
+	}
+	locSnippet := "# location snippet"
+	enableSnippets := true
 	errorPages := []conf_v1.ErrorPage{
 		{
 			Codes: []int{400, 500},
@@ -1822,15 +3466,20 @@ func TestGenerateSplits(t *testing.T) {
 				Value:  "/internal_location_splits_1_split_0",
 			},
 			{
-				Weight: "10%",
+				Weight: "9%",
 				Value:  "/internal_location_splits_1_split_1",
+			},
+			{
+				Weight: "1%",
+				Value:  "/internal_location_splits_1_split_2",
 			},
 		},
 	}
 	expectedLocations := []version2.Location{
 		{
 			Path:                     "/internal_location_splits_1_split_0",
-			ProxyPass:                "http://vs_default_cafe_coffee-v1$request_uri",
+			ProxyPass:                "http://vs_default_cafe_coffee-v1",
+			Rewrites:                 []string{"^ $request_uri", fmt.Sprintf(`"^%v(.*)$" "/rewrite$1" break`, originalPath)},
 			ProxyNextUpstream:        "error timeout",
 			ProxyNextUpstreamTimeout: "0s",
 			ProxyNextUpstreamTries:   0,
@@ -1848,6 +3497,9 @@ func TestGenerateSplits(t *testing.T) {
 					ResponseCode: 301,
 				},
 			},
+			ProxySSLName:            "coffee-v1.default.svc",
+			ProxyPassRequestHeaders: true,
+			Snippets:                []string{locSnippet},
 		},
 		{
 			Path:                     "/internal_location_splits_1_split_1",
@@ -1869,15 +3521,45 @@ func TestGenerateSplits(t *testing.T) {
 					ResponseCode: 301,
 				},
 			},
+			ProxySSLName:            "coffee-v2.default.svc",
+			ProxyPassRequestHeaders: true,
+			Snippets:                []string{locSnippet},
+		},
+		{
+			Path:                 "/internal_location_splits_1_split_2",
+			ProxyInterceptErrors: true,
+			ErrorPages: []version2.ErrorPage{
+				{
+					Name:         "@return_1",
+					Codes:        "418",
+					ResponseCode: 200,
+				},
+			},
+			InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
 		},
 	}
+	expectedReturnLocations := []version2.ReturnLocation{
+		{
+			Name:        "@return_1",
+			DefaultType: "text/plain",
+			Return: version2.Return{
+				Code: 0,
+				Text: "hello",
+			},
+		},
+	}
+	returnLocationIndex := 1
 
-	resultSplitClient, resultLocations := generateSplits(splits, upstreamNamer, crUpstreams, variableNamer, scIndex, &cfgParams, errorPages, 0)
+	resultSplitClient, resultLocations, resultReturnLocations := generateSplits(splits, upstreamNamer, crUpstreams,
+		variableNamer, scIndex, &cfgParams, errorPages, 0, originalPath, locSnippet, enableSnippets, returnLocationIndex)
 	if !reflect.DeepEqual(resultSplitClient, expectedSplitClient) {
 		t.Errorf("generateSplits() returned \n%+v but expected \n%+v", resultSplitClient, expectedSplitClient)
 	}
 	if !reflect.DeepEqual(resultLocations, expectedLocations) {
 		t.Errorf("generateSplits() returned \n%+v but expected \n%+v", resultLocations, expectedLocations)
+	}
+	if !reflect.DeepEqual(resultReturnLocations, expectedReturnLocations) {
+		t.Errorf("generateSplits() returned \n%+v but expected \n%+v", resultReturnLocations, expectedReturnLocations)
 	}
 
 }
@@ -1935,6 +3617,8 @@ func TestGenerateDefaultSplitsConfig(t *testing.T) {
 				ProxyNextUpstreamTimeout: "0s",
 				ProxyNextUpstreamTries:   0,
 				Internal:                 true,
+				ProxySSLName:             "coffee-v1.default.svc",
+				ProxyPassRequestHeaders:  true,
 			},
 			{
 				Path:                     "/internal_location_splits_1_split_1",
@@ -1943,6 +3627,8 @@ func TestGenerateDefaultSplitsConfig(t *testing.T) {
 				ProxyNextUpstreamTimeout: "0s",
 				ProxyNextUpstreamTries:   0,
 				Internal:                 true,
+				ProxySSLName:             "coffee-v2.default.svc",
+				ProxyPassRequestHeaders:  true,
 			},
 		},
 		InternalRedirectLocation: version2.InternalRedirectLocation{
@@ -1952,8 +3638,19 @@ func TestGenerateDefaultSplitsConfig(t *testing.T) {
 	}
 
 	cfgParams := ConfigParams{}
+	locSnippet := ""
+	enableSnippets := false
+	crUpstreams := map[string]conf_v1.Upstream{
+		"vs_default_cafe_coffee-v1": {
+			Service: "coffee-v1",
+		},
+		"vs_default_cafe_coffee-v2": {
+			Service: "coffee-v2",
+		},
+	}
 
-	result := generateDefaultSplitsConfig(route, upstreamNamer, map[string]conf_v1.Upstream{}, variableNamer, index, &cfgParams, route.ErrorPages, 0)
+	result := generateDefaultSplitsConfig(route, upstreamNamer, crUpstreams, variableNamer, index, &cfgParams,
+		route.ErrorPages, 0, "", locSnippet, enableSnippets, 0)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateDefaultSplitsConfig() returned \n%+v but expected \n%+v", result, expected)
 	}
@@ -2219,6 +3916,8 @@ func TestGenerateMatchesConfig(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
+				ProxySSLName:            "coffee-v1.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 			{
 				Path:                     "/internal_location_splits_2_split_0",
@@ -2240,6 +3939,8 @@ func TestGenerateMatchesConfig(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
+				ProxySSLName:            "coffee-v1.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 			{
 				Path:                     "/internal_location_splits_2_split_1",
@@ -2261,6 +3962,8 @@ func TestGenerateMatchesConfig(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
+				ProxySSLName:            "coffee-v2.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 			{
 				Path:                     "/internal_location_matches_1_default",
@@ -2282,6 +3985,8 @@ func TestGenerateMatchesConfig(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
+				ProxySSLName:            "tea.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 		},
 		InternalRedirectLocation: version2.InternalRedirectLocation{
@@ -2307,8 +4012,15 @@ func TestGenerateMatchesConfig(t *testing.T) {
 	}
 
 	cfgParams := ConfigParams{}
+	enableSnippets := false
+	locSnippets := ""
+	crUpstreams := map[string]conf_v1.Upstream{
+		"vs_default_cafe_coffee-v1": {Service: "coffee-v1"},
+		"vs_default_cafe_coffee-v2": {Service: "coffee-v2"},
+		"vs_default_cafe_tea":       {Service: "tea"},
+	}
 
-	result := generateMatchesConfig(route, upstreamNamer, map[string]conf_v1.Upstream{}, variableNamer, index, scIndex, &cfgParams, errorPages, 2)
+	result := generateMatchesConfig(route, upstreamNamer, crUpstreams, variableNamer, index, scIndex, &cfgParams, errorPages, 2, locSnippets, enableSnippets, 0)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateMatchesConfig() returned \n%+v but expected \n%+v", result, expected)
 	}
@@ -2487,7 +4199,9 @@ func TestGenerateMatchesConfigWithMultipleSplits(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
-				ProxyInterceptErrors: true,
+				ProxyInterceptErrors:    true,
+				ProxySSLName:            "coffee-v1.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 			{
 				Path:                     "/internal_location_splits_2_split_1",
@@ -2508,7 +4222,9 @@ func TestGenerateMatchesConfigWithMultipleSplits(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
-				ProxyInterceptErrors: true,
+				ProxyInterceptErrors:    true,
+				ProxySSLName:            "coffee-v2.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 			{
 				Path:                     "/internal_location_splits_3_split_0",
@@ -2529,7 +4245,9 @@ func TestGenerateMatchesConfigWithMultipleSplits(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
-				ProxyInterceptErrors: true,
+				ProxyInterceptErrors:    true,
+				ProxySSLName:            "coffee-v2.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 			{
 				Path:                     "/internal_location_splits_3_split_1",
@@ -2550,7 +4268,9 @@ func TestGenerateMatchesConfigWithMultipleSplits(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
-				ProxyInterceptErrors: true,
+				ProxyInterceptErrors:    true,
+				ProxySSLName:            "coffee-v1.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 			{
 				Path:                     "/internal_location_splits_4_split_0",
@@ -2571,7 +4291,9 @@ func TestGenerateMatchesConfigWithMultipleSplits(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
-				ProxyInterceptErrors: true,
+				ProxyInterceptErrors:    true,
+				ProxySSLName:            "coffee-v1.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 			{
 				Path:                     "/internal_location_splits_4_split_1",
@@ -2592,7 +4314,9 @@ func TestGenerateMatchesConfigWithMultipleSplits(t *testing.T) {
 						ResponseCode: 301,
 					},
 				},
-				ProxyInterceptErrors: true,
+				ProxyInterceptErrors:    true,
+				ProxySSLName:            "coffee-v2.default.svc",
+				ProxyPassRequestHeaders: true,
 			},
 		},
 		InternalRedirectLocation: version2.InternalRedirectLocation{
@@ -2646,8 +4370,13 @@ func TestGenerateMatchesConfigWithMultipleSplits(t *testing.T) {
 	}
 
 	cfgParams := ConfigParams{}
-
-	result := generateMatchesConfig(route, upstreamNamer, map[string]conf_v1.Upstream{}, variableNamer, index, scIndex, &cfgParams, errorPages, 0)
+	enableSnippets := false
+	locSnippets := ""
+	crUpstreams := map[string]conf_v1.Upstream{
+		"vs_default_cafe_coffee-v1": {Service: "coffee-v1"},
+		"vs_default_cafe_coffee-v2": {Service: "coffee-v2"},
+	}
+	result := generateMatchesConfig(route, upstreamNamer, crUpstreams, variableNamer, index, scIndex, &cfgParams, errorPages, 0, locSnippets, enableSnippets, 0)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateMatchesConfig() returned \n%+v but expected \n%+v", result, expected)
 	}
@@ -2848,7 +4577,7 @@ func TestUpstreamHasKeepalive(t *testing.T) {
 			conf_v1.Upstream{Keepalive: &noKeepalive},
 			&ConfigParams{Keepalive: keepalive},
 			false,
-			"upstream keepalive set to 0, configparam keepive set",
+			"upstream keepalive set to 0, configparam keepalive set",
 		},
 		{
 			conf_v1.Upstream{Keepalive: &keepalive},
@@ -3186,10 +4915,8 @@ func TestGenerateEndpointsForUpstream(t *testing.T) {
 		},
 	}
 
-	isTLSPassthrough := false
-
 	for _, test := range tests {
-		vsc := newVirtualServerConfigurator(&ConfigParams{}, test.isPlus, test.isResolverConfigured, isTLSPassthrough)
+		vsc := newVirtualServerConfigurator(&ConfigParams{}, test.isPlus, test.isResolverConfigured, &StaticConfigParams{})
 		result := vsc.generateEndpointsForUpstream(test.vsEx.VirtualServer, namespace, test.upstream, test.vsEx)
 		if !reflect.DeepEqual(result, test.expected) {
 			t.Errorf("generateEndpointsForUpstream(isPlus=%v, isResolverConfigured=%v) returned %v, but expected %v for case: %v",
@@ -3224,7 +4951,7 @@ func TestGenerateSlowStartForPlusWithInCompatibleLBMethods(t *testing.T) {
 	}
 
 	for _, lbMethod := range tests {
-		vsc := newVirtualServerConfigurator(&ConfigParams{}, true, false, false)
+		vsc := newVirtualServerConfigurator(&ConfigParams{}, true, false, &StaticConfigParams{})
 		result := vsc.generateSlowStartForPlus(&conf_v1.VirtualServer{}, upstream, lbMethod)
 
 		if !reflect.DeepEqual(result, expected) {
@@ -3259,7 +4986,7 @@ func TestGenerateSlowStartForPlus(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		vsc := newVirtualServerConfigurator(&ConfigParams{}, true, false, false)
+		vsc := newVirtualServerConfigurator(&ConfigParams{}, true, false, &StaticConfigParams{})
 		result := vsc.generateSlowStartForPlus(&conf_v1.VirtualServer{}, test.upstream, test.lbMethod)
 		if !reflect.DeepEqual(result, test.expected) {
 			t.Errorf("generateSlowStartForPlus returned %v, but expected %v", result, test.expected)
@@ -3312,6 +5039,9 @@ func TestGenerateUpstreamWithQueue(t *testing.T) {
 			}},
 			isPlus: true,
 			expected: version2.Upstream{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service: "test-queue",
+				},
 				Name: "test-upstream-queue",
 				Queue: &version2.Queue{
 					Size:    10,
@@ -3325,6 +5055,9 @@ func TestGenerateUpstreamWithQueue(t *testing.T) {
 			upstream: conf_v1.Upstream{Service: serviceName, Port: 80, Queue: &conf_v1.UpstreamQueue{Size: 10, Timeout: ""}},
 			isPlus:   true,
 			expected: version2.Upstream{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service: "test-queue",
+				},
 				Name: "test-upstream-queue-with-default-timeout",
 				Queue: &version2.Queue{
 					Size:    10,
@@ -3338,6 +5071,9 @@ func TestGenerateUpstreamWithQueue(t *testing.T) {
 			upstream: conf_v1.Upstream{Service: serviceName, Port: 80, Queue: nil},
 			isPlus:   false,
 			expected: version2.Upstream{
+				UpstreamLabels: version2.UpstreamLabels{
+					Service: "test-queue",
+				},
 				Name: "test-upstream-queue-nil",
 			},
 			msg: "upstream queue with nil for OSS",
@@ -3345,8 +5081,8 @@ func TestGenerateUpstreamWithQueue(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		vsc := newVirtualServerConfigurator(&ConfigParams{}, test.isPlus, false, false)
-		result := vsc.generateUpstream(&conf_v1.VirtualServer{}, test.name, test.upstream, false, []string{})
+		vsc := newVirtualServerConfigurator(&ConfigParams{}, test.isPlus, false, &StaticConfigParams{})
+		result := vsc.generateUpstream(nil, test.name, test.upstream, false, []string{})
 		if !reflect.DeepEqual(result, test.expected) {
 			t.Errorf("generateUpstream() returned %v but expected %v for the case of %v", result, test.expected, test.msg)
 		}
@@ -3629,6 +5365,477 @@ func TestGenerateErrorPageLocations(t *testing.T) {
 		result := generateErrorPageLocations(i, test.errorPages)
 		if !reflect.DeepEqual(result, test.expected) {
 			t.Errorf("generateErrorPageLocations(%v, %v) returned %v but expected %v", test.upstreamName, test.errorPages, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateProxySSLName(t *testing.T) {
+	result := generateProxySSLName("coffee-v1", "default")
+	if result != "coffee-v1.default.svc" {
+		t.Errorf("generateProxySSLName(coffee-v1, default) returned %v but expected coffee-v1.default.svc", result)
+	}
+}
+
+func TestIsTLSEnabled(t *testing.T) {
+	tests := []struct {
+		upstream   conf_v1.Upstream
+		spiffeCert bool
+		expected   bool
+	}{
+		{
+			upstream: conf_v1.Upstream{
+				TLS: conf_v1.UpstreamTLS{
+					Enable: false,
+				},
+			},
+			spiffeCert: false,
+			expected:   false,
+		},
+		{
+			upstream: conf_v1.Upstream{
+				TLS: conf_v1.UpstreamTLS{
+					Enable: false,
+				},
+			},
+			spiffeCert: true,
+			expected:   true,
+		},
+		{
+			upstream: conf_v1.Upstream{
+				TLS: conf_v1.UpstreamTLS{
+					Enable: true,
+				},
+			},
+			spiffeCert: true,
+			expected:   true,
+		},
+		{
+			upstream: conf_v1.Upstream{
+				TLS: conf_v1.UpstreamTLS{
+					Enable: true,
+				},
+			},
+			spiffeCert: false,
+			expected:   true,
+		},
+	}
+
+	for _, test := range tests {
+		result := isTLSEnabled(test.upstream, test.spiffeCert)
+		if result != test.expected {
+			t.Errorf("isTLSEnabled(%v, %v) returned %v but expected %v", test.upstream, test.spiffeCert, result, test.expected)
+		}
+	}
+
+}
+
+func TestGenerateRewrites(t *testing.T) {
+	tests := []struct {
+		path         string
+		proxy        *conf_v1.ActionProxy
+		internal     bool
+		originalPath string
+		expected     []string
+	}{
+		{
+			proxy:    nil,
+			expected: nil,
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "",
+			},
+			expected: nil,
+		},
+		{
+			path: "/path",
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "/rewrite",
+			},
+			expected: nil,
+		},
+		{
+			path:     "/_internal_path",
+			internal: true,
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "/rewrite",
+			},
+			originalPath: "/path",
+			expected:     []string{`^ $request_uri`, `"^/path(.*)$" "/rewrite$1" break`},
+		},
+		{
+			path:     "~/regex",
+			internal: true,
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "/rewrite",
+			},
+			originalPath: "/path",
+			expected:     []string{`^ $request_uri`, `"^/path(.*)$" "/rewrite$1" break`},
+		},
+		{
+			path:     "~/regex",
+			internal: false,
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "/rewrite",
+			},
+			expected: []string{`"^/regex" "/rewrite" break`},
+		},
+	}
+
+	for _, test := range tests {
+		result := generateRewrites(test.path, test.proxy, test.internal, test.originalPath)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateRewrites(%v, %v, %v, %v) returned \n %v but expected \n %v",
+				test.path, test.proxy, test.internal, test.originalPath, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateProxyPassRewrite(t *testing.T) {
+	tests := []struct {
+		path     string
+		proxy    *conf_v1.ActionProxy
+		internal bool
+		expected string
+	}{
+		{
+			expected: "",
+		},
+		{
+			internal: true,
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "/rewrite",
+			},
+			expected: "",
+		},
+		{
+			path: "/path",
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "/rewrite",
+			},
+			expected: "/rewrite",
+		},
+		{
+			path: "=/path",
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "/rewrite",
+			},
+			expected: "/rewrite",
+		},
+		{
+			path: "~/path",
+			proxy: &conf_v1.ActionProxy{
+				RewritePath: "/rewrite",
+			},
+			expected: "",
+		},
+	}
+
+	for _, test := range tests {
+		result := generateProxyPassRewrite(test.path, test.proxy, test.internal)
+		if result != test.expected {
+			t.Errorf("generateProxyPassRewrite(%v, %v, %v) returned %v but expected %v",
+				test.path, test.proxy, test.internal, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateProxySetHeaders(t *testing.T) {
+	tests := []struct {
+		proxy    *conf_v1.ActionProxy
+		expected []version2.Header
+	}{
+		{
+			proxy:    nil,
+			expected: nil,
+		},
+		{
+			proxy:    &conf_v1.ActionProxy{},
+			expected: nil,
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				RequestHeaders: &conf_v1.ProxyRequestHeaders{
+					Set: []conf_v1.Header{
+						{
+							Name:  "Header-Name",
+							Value: "HeaderValue",
+						},
+						{
+							Name:  "Host",
+							Value: "nginx.org",
+						},
+					},
+				},
+			},
+			expected: []version2.Header{
+				{
+					Name:  "Header-Name",
+					Value: "HeaderValue",
+				},
+				{
+					Name:  "Host",
+					Value: "nginx.org",
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		result := generateProxySetHeaders(test.proxy)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateProxySetHeaders(%v) returned %v but expected %v", test.proxy, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateProxyPassRequestHeaders(t *testing.T) {
+	passTrue := true
+	passFalse := false
+	tests := []struct {
+		proxy    *conf_v1.ActionProxy
+		expected bool
+	}{
+		{
+			proxy:    nil,
+			expected: true,
+		},
+		{
+			proxy:    &conf_v1.ActionProxy{},
+			expected: true,
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				RequestHeaders: &conf_v1.ProxyRequestHeaders{
+					Pass: nil,
+				},
+			},
+			expected: true,
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				RequestHeaders: &conf_v1.ProxyRequestHeaders{
+					Pass: &passTrue,
+				},
+			},
+			expected: true,
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				RequestHeaders: &conf_v1.ProxyRequestHeaders{
+					Pass: &passFalse,
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, test := range tests {
+		result := generateProxyPassRequestHeaders(test.proxy)
+		if result != test.expected {
+			t.Errorf("generateProxyPassRequestHeaders(%v) returned %v but expected %v", test.proxy, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateProxyHideHeaders(t *testing.T) {
+	tests := []struct {
+		proxy    *conf_v1.ActionProxy
+		expected []string
+	}{
+		{
+			proxy:    nil,
+			expected: nil,
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				ResponseHeaders: nil,
+			},
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				ResponseHeaders: &conf_v1.ProxyResponseHeaders{
+					Hide: []string{"Header", "Header-2"},
+				},
+			},
+			expected: []string{"Header", "Header-2"},
+		},
+	}
+
+	for _, test := range tests {
+		result := generateProxyHideHeaders(test.proxy)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateProxyHideHeaders(%v) returned %v but expected %v", test.proxy, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateProxyPassHeaders(t *testing.T) {
+	tests := []struct {
+		proxy    *conf_v1.ActionProxy
+		expected []string
+	}{
+		{
+			proxy:    nil,
+			expected: nil,
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				ResponseHeaders: nil,
+			},
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				ResponseHeaders: &conf_v1.ProxyResponseHeaders{
+					Pass: []string{"Header", "Header-2"},
+				},
+			},
+			expected: []string{"Header", "Header-2"},
+		},
+	}
+
+	for _, test := range tests {
+		result := generateProxyPassHeaders(test.proxy)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateProxyPassHeaders(%v) returned %v but expected %v", test.proxy, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateProxyIgnoreHeaders(t *testing.T) {
+	tests := []struct {
+		proxy    *conf_v1.ActionProxy
+		expected string
+	}{
+		{
+			proxy:    nil,
+			expected: "",
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				ResponseHeaders: nil,
+			},
+			expected: "",
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				ResponseHeaders: &conf_v1.ProxyResponseHeaders{
+					Ignore: []string{"Header", "Header-2"},
+				},
+			},
+			expected: "Header Header-2",
+		},
+	}
+
+	for _, test := range tests {
+		result := generateProxyIgnoreHeaders(test.proxy)
+		if result != test.expected {
+			t.Errorf("generateProxyIgnoreHeaders(%v) returned %v but expected %v", test.proxy, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateProxyAddHeaders(t *testing.T) {
+	tests := []struct {
+		proxy    *conf_v1.ActionProxy
+		expected []version2.AddHeader
+	}{
+		{
+			proxy:    nil,
+			expected: nil,
+		},
+		{
+			proxy:    &conf_v1.ActionProxy{},
+			expected: nil,
+		},
+		{
+			proxy: &conf_v1.ActionProxy{
+				ResponseHeaders: &conf_v1.ProxyResponseHeaders{
+					Add: []conf_v1.AddHeader{
+						{
+							Header: conf_v1.Header{
+								Name:  "Header-Name",
+								Value: "HeaderValue",
+							},
+							Always: true,
+						},
+						{
+							Header: conf_v1.Header{
+								Name:  "Server",
+								Value: "myServer",
+							},
+							Always: false,
+						},
+					},
+				},
+			},
+			expected: []version2.AddHeader{
+				{
+					Header: version2.Header{
+						Name:  "Header-Name",
+						Value: "HeaderValue",
+					},
+					Always: true,
+				},
+				{
+					Header: version2.Header{
+						Name:  "Server",
+						Value: "myServer",
+					},
+					Always: false,
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		result := generateProxyAddHeaders(test.proxy)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateProxyAddHeaders(%v) returned %v but expected %v", test.proxy, result, test.expected)
+		}
+	}
+}
+
+func TestGetUpstreamResourceLabels(t *testing.T) {
+	var tests = []struct {
+		owner    runtime.Object
+		expected version2.UpstreamLabels
+	}{
+		{
+			owner:    nil,
+			expected: version2.UpstreamLabels{},
+		},
+		{
+			owner: &conf_v1.VirtualServer{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Namespace: "namespace",
+					Name:      "name",
+				},
+			},
+			expected: version2.UpstreamLabels{
+				ResourceNamespace: "namespace",
+				ResourceName:      "name",
+				ResourceType:      "virtualserver",
+			},
+		},
+		{
+			owner: &conf_v1.VirtualServerRoute{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Namespace: "namespace",
+					Name:      "name",
+				},
+			},
+			expected: version2.UpstreamLabels{
+				ResourceNamespace: "namespace",
+				ResourceName:      "name",
+				ResourceType:      "virtualserverroute",
+			},
+		},
+	}
+	for _, test := range tests {
+		result := getUpstreamResourceLabels(test.owner)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("getUpstreamResourceLabels(%+v) returned %+v but expected %+v", test.owner, result, test.expected)
 		}
 	}
 }

@@ -6,7 +6,7 @@ The wildcard TLS certificate simplifies the configuration of TLS termination if 
 
 ### Prerequisites
 
-Start the Ingress Controller with the `-wildcard-tls-secret` [command-line argument](../../docs/cli-arguments.md) set to a TLS secret with a wildcard cert/key. For example:
+Start the Ingress Controller with the `-wildcard-tls-secret` [command-line argument](https://docs.nginx.com/nginx-ingress-controller/configuration/global-configuration/command-line-arguments/) set to a TLS secret with a wildcard cert/key. For example:
 
 ```yaml
 -wildcard-tls-secret=nginx-ingress/wildlcard-tls-secret
@@ -21,7 +21,7 @@ In the example below we configure TLS termination for two Ingress resources for 
 `foo-ingress` from the namespace `foo-namespace`:
 
  ```yaml
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: foo-ingress
@@ -45,7 +45,7 @@ spec:
 `bar-ingress` from the namespace `bar-namespace`:
 
 ```yaml
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: bar-ingress

@@ -10,6 +10,11 @@ const nginxPlusTransportServerTmpl = "nginx-plus.transportserver.tmpl"
 const nginxTransportServerTmpl = "nginx.transportserver.tmpl"
 
 var virtualServerCfg = VirtualServerConfig{
+	LimitReqZones: []LimitReqZone{
+		{
+			ZoneName: "pol_rl_test_test_test", Rate: "10r/s", ZoneSize: "10m", Key: "$url",
+		},
+	},
 	Upstreams: []Upstream{
 		{
 			Name: "test-upstream",
@@ -99,6 +104,7 @@ var virtualServerCfg = VirtualServerConfig{
 			},
 		},
 	},
+	HTTPSnippets: []string{"# HTTP snippet"},
 	Server: Server{
 		ServerName:    "example.com",
 		StatusZone:    "example.com",
@@ -117,7 +123,29 @@ var virtualServerCfg = VirtualServerConfig{
 		SetRealIPFrom:   []string{"0.0.0.0/0"},
 		RealIPHeader:    "X-Real-IP",
 		RealIPRecursive: true,
-		Snippets:        []string{"# server snippet"},
+		Allow:           []string{"127.0.0.1"},
+		Deny:            []string{"127.0.0.1"},
+		LimitReqs: []LimitReq{
+			{
+				ZoneName: "pol_rl_test_test_test",
+				Delay:    10,
+				Burst:    5,
+			},
+		},
+		LimitReqOptions: LimitReqOptions{
+			LogLevel:   "error",
+			RejectCode: 503,
+		},
+		JWTAuth: &JWTAuth{
+			Realm:  "My Api",
+			Secret: "jwk-secret",
+		},
+		IngressMTLS: &IngressMTLS{
+			ClientCert:   "ingress-mtls-secret",
+			VerifyClient: "on",
+			VerifyDepth:  2,
+		},
+		Snippets: []string{"# server snippet"},
 		InternalRedirectLocations: []InternalRedirectLocation{
 			{
 				Path:        "/split",
@@ -130,8 +158,15 @@ var virtualServerCfg = VirtualServerConfig{
 		},
 		Locations: []Location{
 			{
-				Path:                     "/",
-				Snippets:                 []string{"# location snippet"},
+				Path:     "/",
+				Snippets: []string{"# location snippet"},
+				Allow:    []string{"127.0.0.1"},
+				Deny:     []string{"127.0.0.1"},
+				LimitReqs: []LimitReq{
+					{
+						ZoneName: "loc_pol_rl_test_test_test",
+					},
+				},
 				ProxyConnectTimeout:      "30s",
 				ProxyReadTimeout:         "31s",
 				ProxySendTimeout:         "32s",
@@ -144,6 +179,21 @@ var virtualServerCfg = VirtualServerConfig{
 				ProxyNextUpstream:        "error timeout",
 				ProxyNextUpstreamTimeout: "5s",
 				Internal:                 true,
+				ProxyPassRequestHeaders:  false,
+				ProxyPassHeaders:         []string{"Host"},
+				ProxyPassRewrite:         "$request_uri",
+				ProxyHideHeaders:         []string{"Header"},
+				ProxyIgnoreHeaders:       "Cache",
+				Rewrites:                 []string{"$request_uri $request_uri", "$request_uri $request_uri"},
+				AddHeaders: []AddHeader{
+					{
+						Header: Header{
+							Name:  "Header-Name",
+							Value: "Header Value",
+						},
+						Always: true,
+					},
+				},
 			},
 			{
 				Path:                     "@loc0",
@@ -198,6 +248,18 @@ var virtualServerCfg = VirtualServerConfig{
 				ProxyNextUpstream:        "error timeout",
 				ProxyNextUpstreamTimeout: "5s",
 			},
+			{
+				Path:                 "/return",
+				ProxyInterceptErrors: true,
+				ErrorPages: []ErrorPage{
+					{
+						Name:         "@return_0",
+						Codes:        "418",
+						ResponseCode: 200,
+					},
+				},
+				InternalProxyPass: "http://unix:/var/lib/nginx/nginx-418-server.sock",
+			},
 		},
 		ErrorPageLocations: []ErrorPageLocation{
 			{
@@ -225,6 +287,16 @@ var virtualServerCfg = VirtualServerConfig{
 						Name:  "Set-Cookie",
 						Value: "cookie2=test; Secure",
 					},
+				},
+			},
+		},
+		ReturnLocations: []ReturnLocation{
+			{
+				Name:        "@return_0",
+				DefaultType: "text/html",
+				Return: Return{
+					Code: 200,
+					Text: "Hello!",
 				},
 			},
 		},

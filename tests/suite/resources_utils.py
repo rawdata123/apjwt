@@ -5,7 +5,7 @@ import yaml
 import pytest
 import requests
 
-from kubernetes.client import CoreV1Api, ExtensionsV1beta1Api, RbacAuthorizationV1beta1Api, V1Service, AppsV1Api
+from kubernetes.client import CoreV1Api, ExtensionsV1beta1Api, RbacAuthorizationV1Api, V1Service, AppsV1Api
 from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 from kubernetes import client
@@ -27,11 +27,11 @@ class RBACAuthorization:
         self.binding = binding
 
 
-def configure_rbac(rbac_v1_beta1: RbacAuthorizationV1beta1Api) -> RBACAuthorization:
+def configure_rbac(rbac_v1: RbacAuthorizationV1Api) -> RBACAuthorization:
     """
     Create cluster and binding.
 
-    :param rbac_v1_beta1: RbacAuthorizationV1beta1Api
+    :param rbac_v1: RbacAuthorizationV1Api
     :return: RBACAuthorization
     """
     with open(f'{DEPLOYMENTS}/rbac/rbac.yaml') as f:
@@ -42,21 +42,45 @@ def configure_rbac(rbac_v1_beta1: RbacAuthorizationV1beta1Api) -> RBACAuthorizat
             if dep["kind"] == "ClusterRole":
                 print("Create cluster role")
                 role_name = dep['metadata']['name']
-                rbac_v1_beta1.create_cluster_role(dep)
+                rbac_v1.create_cluster_role(dep)
                 print(f"Created role '{role_name}'")
             elif dep["kind"] == "ClusterRoleBinding":
                 print("Create binding")
                 binding_name = dep['metadata']['name']
-                rbac_v1_beta1.create_cluster_role_binding(dep)
+                rbac_v1.create_cluster_role_binding(dep)
                 print(f"Created binding '{binding_name}'")
         return RBACAuthorization(role_name, binding_name)
 
 
-def patch_rbac(rbac_v1_beta1: RbacAuthorizationV1beta1Api, yaml_manifest) -> RBACAuthorization:
+def configure_rbac_with_ap(rbac_v1: RbacAuthorizationV1Api) -> RBACAuthorization:
+    """
+    Create cluster and binding for AppProtect module.
+    :param rbac_v1: RbacAuthorizationV1Api
+    :return: RBACAuthorization
+    """
+    with open(f"{DEPLOYMENTS}/rbac/ap-rbac.yaml") as f:
+        docs = yaml.safe_load_all(f)
+        role_name = ""
+        binding_name = ""
+        for dep in docs:
+            if dep["kind"] == "ClusterRole":
+                print("Create cluster role for AppProtect")
+                role_name = dep["metadata"]["name"]
+                rbac_v1.create_cluster_role(dep)
+                print(f"Created role '{role_name}'")
+            elif dep["kind"] == "ClusterRoleBinding":
+                print("Create binding for AppProtect")
+                binding_name = dep["metadata"]["name"]
+                rbac_v1.create_cluster_role_binding(dep)
+                print(f"Created binding '{binding_name}'")
+        return RBACAuthorization(role_name, binding_name)
+
+
+def patch_rbac(rbac_v1: RbacAuthorizationV1Api, yaml_manifest) -> RBACAuthorization:
     """
     Patch a clusterrole and a binding.
 
-    :param rbac_v1_beta1: RbacAuthorizationV1beta1Api
+    :param rbac_v1: RbacAuthorizationV1Api
     :param yaml_manifest: an absolute path to yaml manifest
     :return: RBACAuthorization
     """
@@ -68,28 +92,28 @@ def patch_rbac(rbac_v1_beta1: RbacAuthorizationV1beta1Api, yaml_manifest) -> RBA
             if dep["kind"] == "ClusterRole":
                 print("Patch the cluster role")
                 role_name = dep['metadata']['name']
-                rbac_v1_beta1.patch_cluster_role(role_name, dep)
+                rbac_v1.patch_cluster_role(role_name, dep)
                 print(f"Patched the role '{role_name}'")
             elif dep["kind"] == "ClusterRoleBinding":
                 print("Patch the binding")
                 binding_name = dep['metadata']['name']
-                rbac_v1_beta1.patch_cluster_role_binding(binding_name, dep)
+                rbac_v1.patch_cluster_role_binding(binding_name, dep)
                 print(f"Patched the binding '{binding_name}'")
         return RBACAuthorization(role_name, binding_name)
 
 
-def cleanup_rbac(rbac_v1_beta1: RbacAuthorizationV1beta1Api, rbac: RBACAuthorization) -> None:
+def cleanup_rbac(rbac_v1: RbacAuthorizationV1Api, rbac: RBACAuthorization) -> None:
     """
     Delete binding and cluster role.
 
-    :param rbac_v1_beta1: RbacAuthorizationV1beta1Api
+    :param rbac_v1: RbacAuthorizationV1Api
     :param rbac: RBACAuthorization
     :return:
     """
     delete_options = client.V1DeleteOptions()
     print("Delete binding and cluster role")
-    rbac_v1_beta1.delete_cluster_role_binding(rbac.binding, delete_options)
-    rbac_v1_beta1.delete_cluster_role(rbac.role, delete_options)
+    rbac_v1.delete_cluster_role_binding(rbac.binding, delete_options)
+    rbac_v1.delete_cluster_role(rbac.role, delete_options)
 
 
 def create_deployment_from_yaml(apps_v1_api: AppsV1Api, namespace, yaml_manifest) -> str:
@@ -420,16 +444,16 @@ def ensure_item_removal(get_item, *args, **kwargs) -> None:
     """
     try:
         counter = 0
-        while counter < 30:
+        while counter < 120:
             time.sleep(1)
             get_item(*args, **kwargs)
             counter = counter + 1
-        if counter >= 30:
+        if counter >= 120:
             # Due to k8s issue with namespaces, they sometimes get stuck in Terminating state, skip such cases
             if "_namespace " in str(get_item):
-                print(f"Failed to remove namespace '{args}' after 30 seconds, skip removal. Remove manually.")
+                print(f"Failed to remove namespace '{args}' after 120 seconds, skip removal. Remove manually.")
             else:
-                pytest.fail("Failed to remove the item after 30 seconds")
+                pytest.fail("Failed to remove the item after 120 seconds")
     except ApiException as ex:
         if ex.status == 404:
             print("Item was removed")
@@ -814,6 +838,22 @@ def wait_before_test(delay=RECONFIGURATION_DELAY) -> None:
     time.sleep(delay)
 
 
+def wait_for_event_increment(kube_apis, namespace, event_count) -> bool:
+    counter = 0
+    print(f"\nCurrent event count: {event_count}")
+    while counter < 30:
+        time.sleep(2)
+        counter = counter + 1
+        updated_event_count = len(get_events(kube_apis.v1, namespace))
+        if updated_event_count == (event_count + 1):
+            print(f"\nCurrent event count: {updated_event_count}")
+            print(f"Update took {counter+1} retries at 2 seconds intervals")
+            return True
+        else:
+            continue
+    return False
+
+
 def create_ingress_controller(v1: CoreV1Api, apps_v1_api: AppsV1Api, cli_arguments,
                               namespace, args=None) -> str:
     """
@@ -905,6 +945,67 @@ def create_items_from_yaml(kube_apis, yaml_manifest, namespace) -> None:
                 create_deployment(kube_apis.apps_v1_api, namespace, doc)
             elif doc["kind"] == "DaemonSet":
                 create_daemon_set(kube_apis.apps_v1_api, namespace, doc)
+
+
+def create_ingress_with_ap_annotations(
+    kube_apis, yaml_manifest, namespace, policy_name, ap_pol_st, ap_log_st, syslog_ep
+) -> None:
+    """
+    Create an ingress with AppProtect annotations
+    :param kube_apis: KubeApis
+    :param yaml_manifest: an absolute path to ingress yaml
+    :param namespace: namespace
+    :param policy_name: AppProtect policy
+    :param ap_log_st: True/False for enabling/disabling AppProtect security logging
+    :param ap_pol_st: True/False for enabling/disabling AppProtect module for particular ingress
+    :param syslog_ep: Destination endpoint for security logs
+    :return:
+    """
+    print("Load ingress yaml and set AppProtect annotations")
+    policy = f"{namespace}/{policy_name}"
+    logconf = f"{namespace}/logconf"
+
+    with open(yaml_manifest) as f:
+        doc = yaml.safe_load(f)
+
+        doc["metadata"]["annotations"]["appprotect.f5.com/app-protect-policy"] = policy
+        doc["metadata"]["annotations"]["appprotect.f5.com/app-protect-enable"] = ap_pol_st
+        doc["metadata"]["annotations"][
+            "appprotect.f5.com/app-protect-security-log-enable"
+        ] = ap_log_st
+        doc["metadata"]["annotations"]["appprotect.f5.com/app-protect-security-log"] = logconf
+        doc["metadata"]["annotations"]["appprotect.f5.com/app-protect-security-log-destination"] = f"syslog:server={syslog_ep}"
+        create_ingress(kube_apis.extensions_v1_beta1, namespace, doc)
+
+def replace_ingress_with_ap_annotations(
+    kube_apis, yaml_manifest, name, namespace, policy_name, ap_pol_st, ap_log_st, syslog_ep
+) -> None:
+    """
+    Replace an ingress with AppProtect annotations
+    :param kube_apis: KubeApis
+    :param yaml_manifest: an absolute path to ingress yaml
+    :param namespace: namespace
+    :param policy_name: AppProtect policy
+    :param ap_log_st: True/False for enabling/disabling AppProtect security logging
+    :param ap_pol_st: True/False for enabling/disabling AppProtect module for particular ingress
+    :param syslog_ep: Destination endpoint for security logs
+    :return:
+    """
+    print("Load ingress yaml and set AppProtect annotations")
+    policy = f"{namespace}/{policy_name}"
+    logconf = f"{namespace}/logconf"
+
+    with open(yaml_manifest) as f:
+        doc = yaml.safe_load(f)
+
+        doc["metadata"]["annotations"]["appprotect.f5.com/app-protect-policy"] = policy
+        doc["metadata"]["annotations"]["appprotect.f5.com/app-protect-enable"] = ap_pol_st
+        doc["metadata"]["annotations"][
+            "appprotect.f5.com/app-protect-security-log-enable"
+        ] = ap_log_st
+        doc["metadata"]["annotations"]["appprotect.f5.com/app-protect-security-log"] = logconf
+        doc["metadata"]["annotations"]["appprotect.f5.com/app-protect-security-log-destination"] = f"syslog:server={syslog_ep}"
+        replace_ingress(kube_apis.extensions_v1_beta1, name, namespace, doc)
 
 
 def delete_items_from_yaml(kube_apis, yaml_manifest, namespace) -> None:

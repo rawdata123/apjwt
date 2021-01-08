@@ -1,8 +1,0 @@
-node {
-  git(
-    url: "${libsLocation}",
-    credentialsId: "${githubCreds}",
-    branch: "kubernetes-ingress-release-1.7"
-  )
-  load 'kubernetes-ingress/Jenkinsfile'
-}

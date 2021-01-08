@@ -1,6 +1,6 @@
 # Support for JSON Web Tokens (JWTs)
 
-NGINX Plus supports validating JWTs with [ngx_http_auth_jwt_module](http://nginx.org/en/docs/http/ngx_http_auth_jwt_module.html). 
+NGINX Plus supports validating JWTs with [ngx_http_auth_jwt_module](https://nginx.org/en/docs/http/ngx_http_auth_jwt_module.html). 
 
 The Ingress controller provides the following 4 annotations for configuring JWT validation:
 
@@ -13,7 +13,7 @@ The Ingress controller provides the following 4 annotations for configuring JWT 
 
 In the following example we enable JWT validation for the cafe-ingress Ingress for all paths using the same key `cafe-jwk`:
 ```yaml
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: cafe-ingress
@@ -51,7 +51,7 @@ In the following example we enable JWT validation for the [mergeable Ingresses](
 
 * Master:
   ```yaml
-  apiVersion: extensions/v1beta1
+  apiVersion: networking.k8s.io/v1beta1
   kind: Ingress
   metadata:
     name: cafe-ingress-master
@@ -69,7 +69,7 @@ In the following example we enable JWT validation for the [mergeable Ingresses](
 
 * Tea minion:
   ```yaml
-  apiVersion: extensions/v1beta1
+  apiVersion: networking.k8s.io/v1beta1
   kind: Ingress
   metadata:
     name: cafe-ingress-tea-minion
@@ -93,7 +93,7 @@ In the following example we enable JWT validation for the [mergeable Ingresses](
 
 * Coffee minion:
   ```yaml
-  apiVersion: extensions/v1beta1
+  apiVersion: networking.k8s.io/v1beta1
   kind: Ingress
   metadata:
     name: cafe-ingress-coffee-minion

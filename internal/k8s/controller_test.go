@@ -1,8 +1,11 @@
 package k8s
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -13,9 +16,10 @@ import (
 	"github.com/nginxinc/kubernetes-ingress/internal/metrics/collectors"
 	"github.com/nginxinc/kubernetes-ingress/internal/nginx"
 	conf_v1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1"
+	"github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1alpha1"
 	conf_v1alpha1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	extensions "k8s.io/api/extensions/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -23,12 +27,14 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-func TestIsNginxIngress(t *testing.T) {
+func TestHasCorrectIngressClass(t *testing.T) {
 	ingressClass := "ing-ctrl"
+	incorrectIngressClass := "gce"
+	emptyClass := ""
 
 	var testsWithoutIngressClassOnly = []struct {
 		lbc      *LoadBalancerController
-		ing      *extensions.Ingress
+		ing      *networking.Ingress
 		expected bool
 	}{
 		{
@@ -37,9 +43,9 @@ func TestIsNginxIngress(t *testing.T) {
 				useIngressClassOnly: false,
 				metricsCollector:    collectors.NewControllerFakeCollector(),
 			},
-			&extensions.Ingress{
+			&networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
-					Annotations: map[string]string{ingressClassKey: ""},
+					Annotations: map[string]string{ingressClassKey: emptyClass},
 				},
 			},
 			true,
@@ -50,9 +56,9 @@ func TestIsNginxIngress(t *testing.T) {
 				useIngressClassOnly: false,
 				metricsCollector:    collectors.NewControllerFakeCollector(),
 			},
-			&extensions.Ingress{
+			&networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
-					Annotations: map[string]string{ingressClassKey: "gce"},
+					Annotations: map[string]string{ingressClassKey: incorrectIngressClass},
 				},
 			},
 			false,
@@ -63,7 +69,7 @@ func TestIsNginxIngress(t *testing.T) {
 				useIngressClassOnly: false,
 				metricsCollector:    collectors.NewControllerFakeCollector(),
 			},
-			&extensions.Ingress{
+			&networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Annotations: map[string]string{ingressClassKey: ingressClass},
 				},
@@ -76,7 +82,7 @@ func TestIsNginxIngress(t *testing.T) {
 				useIngressClassOnly: false,
 				metricsCollector:    collectors.NewControllerFakeCollector(),
 			},
-			&extensions.Ingress{
+			&networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Annotations: map[string]string{},
 				},
@@ -87,7 +93,7 @@ func TestIsNginxIngress(t *testing.T) {
 
 	var testsWithIngressClassOnly = []struct {
 		lbc      *LoadBalancerController
-		ing      *extensions.Ingress
+		ing      *networking.Ingress
 		expected bool
 	}{
 		{
@@ -96,9 +102,9 @@ func TestIsNginxIngress(t *testing.T) {
 				useIngressClassOnly: true,
 				metricsCollector:    collectors.NewControllerFakeCollector(),
 			},
-			&extensions.Ingress{
+			&networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
-					Annotations: map[string]string{ingressClassKey: ""},
+					Annotations: map[string]string{ingressClassKey: emptyClass},
 				},
 			},
 			false,
@@ -109,9 +115,9 @@ func TestIsNginxIngress(t *testing.T) {
 				useIngressClassOnly: true,
 				metricsCollector:    collectors.NewControllerFakeCollector(),
 			},
-			&extensions.Ingress{
+			&networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
-					Annotations: map[string]string{ingressClassKey: "gce"},
+					Annotations: map[string]string{ingressClassKey: incorrectIngressClass},
 				},
 			},
 			false,
@@ -122,7 +128,7 @@ func TestIsNginxIngress(t *testing.T) {
 				useIngressClassOnly: true,
 				metricsCollector:    collectors.NewControllerFakeCollector(),
 			},
-			&extensions.Ingress{
+			&networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Annotations: map[string]string{ingressClassKey: ingressClass},
 				},
@@ -135,37 +141,198 @@ func TestIsNginxIngress(t *testing.T) {
 				useIngressClassOnly: true,
 				metricsCollector:    collectors.NewControllerFakeCollector(),
 			},
-			&extensions.Ingress{
+			&networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Annotations: map[string]string{},
 				},
 			},
 			false,
 		},
+		{
+			&LoadBalancerController{
+				ingressClass:        ingressClass,
+				useIngressClassOnly: true, // always true for k8s >= 1.18
+				metricsCollector:    collectors.NewControllerFakeCollector(),
+			},
+			&networking.Ingress{
+				Spec: networking.IngressSpec{
+					IngressClassName: &incorrectIngressClass,
+				},
+			},
+			false,
+		},
+		{
+			&LoadBalancerController{
+				ingressClass:        ingressClass,
+				useIngressClassOnly: true, // always true for k8s >= 1.18
+				metricsCollector:    collectors.NewControllerFakeCollector(),
+			},
+			&networking.Ingress{
+				Spec: networking.IngressSpec{
+					IngressClassName: &emptyClass,
+				},
+			},
+			false,
+		},
+		{
+			&LoadBalancerController{
+				ingressClass:        ingressClass,
+				useIngressClassOnly: true, // always true for k8s >= 1.18
+				metricsCollector:    collectors.NewControllerFakeCollector(),
+			},
+			&networking.Ingress{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Annotations: map[string]string{ingressClassKey: incorrectIngressClass},
+				},
+				Spec: networking.IngressSpec{
+					IngressClassName: &ingressClass,
+				},
+			},
+			false,
+		},
+		{
+			&LoadBalancerController{
+				ingressClass:        ingressClass,
+				useIngressClassOnly: true, // always true for k8s >= 1.18
+				metricsCollector:    collectors.NewControllerFakeCollector(),
+			},
+			&networking.Ingress{
+				Spec: networking.IngressSpec{
+					IngressClassName: &ingressClass,
+				},
+			},
+			true,
+		},
 	}
 
 	for _, test := range testsWithoutIngressClassOnly {
-		if result := test.lbc.IsNginxIngress(test.ing); result != test.expected {
+		if result := test.lbc.HasCorrectIngressClass(test.ing); result != test.expected {
 			classAnnotation := "N/A"
 			if class, exists := test.ing.Annotations[ingressClassKey]; exists {
 				classAnnotation = class
 			}
-			t.Errorf("lbc.IsNginxIngress(ing), lbc.ingressClass=%v, lbc.useIngressClassOnly=%v, ing.Annotations['%v']=%v; got %v, expected %v",
+			t.Errorf("lbc.HasCorrectIngressClass(ing), lbc.ingressClass=%v, lbc.useIngressClassOnly=%v, ing.Annotations['%v']=%v; got %v, expected %v",
 				test.lbc.ingressClass, test.lbc.useIngressClassOnly, ingressClassKey, classAnnotation, result, test.expected)
 		}
 	}
 
 	for _, test := range testsWithIngressClassOnly {
-		if result := test.lbc.IsNginxIngress(test.ing); result != test.expected {
+		if result := test.lbc.HasCorrectIngressClass(test.ing); result != test.expected {
 			classAnnotation := "N/A"
 			if class, exists := test.ing.Annotations[ingressClassKey]; exists {
 				classAnnotation = class
 			}
-			t.Errorf("lbc.IsNginxIngress(ing), lbc.ingressClass=%v, lbc.useIngressClassOnly=%v, ing.Annotations['%v']=%v; got %v, expected %v",
+			t.Errorf("lbc.HasCorrectIngressClass(ing), lbc.ingressClass=%v, lbc.useIngressClassOnly=%v, ing.Annotations['%v']=%v; got %v, expected %v",
 				test.lbc.ingressClass, test.lbc.useIngressClassOnly, ingressClassKey, classAnnotation, result, test.expected)
 		}
 	}
 
+}
+
+func TestHasCorrectIngressClassVS(t *testing.T) {
+	ingressClass := "ing-ctrl"
+	lbcIngOnlyTrue := &LoadBalancerController{
+		ingressClass:        ingressClass,
+		useIngressClassOnly: true,
+		metricsCollector:    collectors.NewControllerFakeCollector(),
+	}
+
+	var testsWithIngressClassOnlyVS = []struct {
+		lbc      *LoadBalancerController
+		ing      *conf_v1.VirtualServer
+		expected bool
+	}{
+		{
+			lbcIngOnlyTrue,
+			&conf_v1.VirtualServer{
+				Spec: conf_v1.VirtualServerSpec{
+					IngressClass: "",
+				},
+			},
+			true,
+		},
+		{
+			lbcIngOnlyTrue,
+			&conf_v1.VirtualServer{
+				Spec: conf_v1.VirtualServerSpec{
+					IngressClass: "gce",
+				},
+			},
+			false,
+		},
+		{
+			lbcIngOnlyTrue,
+			&conf_v1.VirtualServer{
+				Spec: conf_v1.VirtualServerSpec{
+					IngressClass: ingressClass,
+				},
+			},
+			true,
+		},
+		{
+			lbcIngOnlyTrue,
+			&conf_v1.VirtualServer{},
+			true,
+		},
+	}
+
+	lbcIngOnlyFalse := &LoadBalancerController{
+		ingressClass:        ingressClass,
+		useIngressClassOnly: false,
+		metricsCollector:    collectors.NewControllerFakeCollector(),
+	}
+	var testsWithoutIngressClassOnlyVS = []struct {
+		lbc      *LoadBalancerController
+		ing      *conf_v1.VirtualServer
+		expected bool
+	}{
+		{
+			lbcIngOnlyFalse,
+			&conf_v1.VirtualServer{
+				Spec: conf_v1.VirtualServerSpec{
+					IngressClass: "",
+				},
+			},
+			true,
+		},
+		{
+			lbcIngOnlyFalse,
+			&conf_v1.VirtualServer{
+				Spec: conf_v1.VirtualServerSpec{
+					IngressClass: "gce",
+				},
+			},
+			false,
+		},
+		{
+			lbcIngOnlyFalse,
+			&conf_v1.VirtualServer{
+				Spec: conf_v1.VirtualServerSpec{
+					IngressClass: ingressClass,
+				},
+			},
+			true,
+		},
+		{
+			lbcIngOnlyFalse,
+			&conf_v1.VirtualServer{},
+			true,
+		},
+	}
+
+	for _, test := range testsWithIngressClassOnlyVS {
+		if result := test.lbc.HasCorrectIngressClass(test.ing); result != test.expected {
+			t.Errorf("lbc.HasCorrectIngressClass(ing), lbc.ingressClass=%v, lbc.useIngressClassOnly=%v, ingressClassKey=%v, ing.IngressClass=%v; got %v, expected %v",
+				test.lbc.ingressClass, test.lbc.useIngressClassOnly, ingressClassKey, test.ing.Spec.IngressClass, result, test.expected)
+		}
+	}
+
+	for _, test := range testsWithoutIngressClassOnlyVS {
+		if result := test.lbc.HasCorrectIngressClass(test.ing); result != test.expected {
+			t.Errorf("lbc.HasCorrectIngressClass(ing), lbc.ingressClass=%v, lbc.useIngressClassOnly=%v, ingressClassKey=%v, ing.IngressClass=%v; got %v, expected %v",
+				test.lbc.ingressClass, test.lbc.useIngressClassOnly, ingressClassKey, test.ing.Spec.IngressClass, result, test.expected)
+		}
+	}
 }
 
 func TestCreateMergableIngresses(t *testing.T) {
@@ -223,15 +390,15 @@ func TestCreateMergableIngressesInvalidMaster(t *testing.T) {
 	cafeMaster, _, _, lbc := getMergableDefaults()
 
 	// Test Error when Master has a Path
-	cafeMaster.Spec.Rules = []extensions.IngressRule{
+	cafeMaster.Spec.Rules = []networking.IngressRule{
 		{
 			Host: "ok.com",
-			IngressRuleValue: extensions.IngressRuleValue{
-				HTTP: &extensions.HTTPIngressRuleValue{
-					Paths: []extensions.HTTPIngressPath{
+			IngressRuleValue: networking.IngressRuleValue{
+				HTTP: &networking.HTTPIngressRuleValue{
+					Paths: []networking.HTTPIngressPath{
 						{
 							Path: "/coffee",
-							Backend: extensions.IngressBackend{
+							Backend: networking.IngressBackend{
 								ServiceName: "coffee-svc",
 								ServicePort: intstr.IntOrString{
 									StrVal: "80",
@@ -259,8 +426,8 @@ func TestFindMasterForMinion(t *testing.T) {
 	cafeMaster, coffeeMinion, teaMinion, lbc := getMergableDefaults()
 
 	// Makes sure there is an empty path assigned to a master, to allow for lbc.createIngress() to pass
-	cafeMaster.Spec.Rules[0].HTTP = &extensions.HTTPIngressRuleValue{
-		Paths: []extensions.HTTPIngressPath{},
+	cafeMaster.Spec.Rules[0].HTTP = &networking.HTTPIngressRuleValue{
+		Paths: []networking.HTTPIngressPath{},
 	}
 
 	err := lbc.ingressLister.Add(&cafeMaster)
@@ -325,11 +492,11 @@ func TestFindMasterForMinionInvalidMinion(t *testing.T) {
 	cafeMaster, coffeeMinion, _, lbc := getMergableDefaults()
 
 	// Makes sure there is an empty path assigned to a master, to allow for lbc.createIngress() to pass
-	cafeMaster.Spec.Rules[0].HTTP = &extensions.HTTPIngressRuleValue{
-		Paths: []extensions.HTTPIngressPath{},
+	cafeMaster.Spec.Rules[0].HTTP = &networking.HTTPIngressRuleValue{
+		Paths: []networking.HTTPIngressPath{},
 	}
 
-	coffeeMinion.Spec.Rules = []extensions.IngressRule{
+	coffeeMinion.Spec.Rules = []networking.IngressRule{
 		{
 			Host: "ok.com",
 		},
@@ -358,8 +525,8 @@ func TestGetMinionsForMaster(t *testing.T) {
 	cafeMaster, coffeeMinion, teaMinion, lbc := getMergableDefaults()
 
 	// Makes sure there is an empty path assigned to a master, to allow for lbc.createIngress() to pass
-	cafeMaster.Spec.Rules[0].HTTP = &extensions.HTTPIngressRuleValue{
-		Paths: []extensions.HTTPIngressPath{},
+	cafeMaster.Spec.Rules[0].HTTP = &networking.HTTPIngressRuleValue{
+		Paths: []networking.HTTPIngressPath{},
 	}
 
 	err := lbc.ingressLister.Add(&cafeMaster)
@@ -416,11 +583,11 @@ func TestGetMinionsForMasterInvalidMinion(t *testing.T) {
 	cafeMaster, coffeeMinion, teaMinion, lbc := getMergableDefaults()
 
 	// Makes sure there is an empty path assigned to a master, to allow for lbc.createIngress() to pass
-	cafeMaster.Spec.Rules[0].HTTP = &extensions.HTTPIngressRuleValue{
-		Paths: []extensions.HTTPIngressPath{},
+	cafeMaster.Spec.Rules[0].HTTP = &networking.HTTPIngressRuleValue{
+		Paths: []networking.HTTPIngressPath{},
 	}
 
-	teaMinion.Spec.Rules = []extensions.IngressRule{
+	teaMinion.Spec.Rules = []networking.IngressRule{
 		{
 			Host: "ok.com",
 		},
@@ -480,13 +647,13 @@ func TestGetMinionsForMasterConflictingPaths(t *testing.T) {
 	cafeMaster, coffeeMinion, teaMinion, lbc := getMergableDefaults()
 
 	// Makes sure there is an empty path assigned to a master, to allow for lbc.createIngress() to pass
-	cafeMaster.Spec.Rules[0].HTTP = &extensions.HTTPIngressRuleValue{
-		Paths: []extensions.HTTPIngressPath{},
+	cafeMaster.Spec.Rules[0].HTTP = &networking.HTTPIngressRuleValue{
+		Paths: []networking.HTTPIngressPath{},
 	}
 
-	coffeeMinion.Spec.Rules[0].HTTP.Paths = append(coffeeMinion.Spec.Rules[0].HTTP.Paths, extensions.HTTPIngressPath{
+	coffeeMinion.Spec.Rules[0].HTTP.Paths = append(coffeeMinion.Spec.Rules[0].HTTP.Paths, networking.HTTPIngressPath{
 		Path: "/tea",
-		Backend: extensions.IngressBackend{
+		Backend: networking.IngressBackend{
 			ServiceName: "tea-svc",
 			ServicePort: intstr.IntOrString{
 				StrVal: "80",
@@ -546,8 +713,8 @@ func TestGetMinionsForMasterConflictingPaths(t *testing.T) {
 	}
 }
 
-func getMergableDefaults() (cafeMaster, coffeeMinion, teaMinion extensions.Ingress, lbc LoadBalancerController) {
-	cafeMaster = extensions.Ingress{
+func getMergableDefaults() (cafeMaster, coffeeMinion, teaMinion networking.Ingress, lbc LoadBalancerController) {
+	cafeMaster = networking.Ingress{
 		TypeMeta: meta_v1.TypeMeta{},
 		ObjectMeta: meta_v1.ObjectMeta{
 			Name:      "cafe-master",
@@ -557,16 +724,16 @@ func getMergableDefaults() (cafeMaster, coffeeMinion, teaMinion extensions.Ingre
 				"nginx.org/mergeable-ingress-type": "master",
 			},
 		},
-		Spec: extensions.IngressSpec{
-			Rules: []extensions.IngressRule{
+		Spec: networking.IngressSpec{
+			Rules: []networking.IngressRule{
 				{
 					Host: "ok.com",
 				},
 			},
 		},
-		Status: extensions.IngressStatus{},
+		Status: networking.IngressStatus{},
 	}
-	coffeeMinion = extensions.Ingress{
+	coffeeMinion = networking.Ingress{
 		TypeMeta: meta_v1.TypeMeta{},
 		ObjectMeta: meta_v1.ObjectMeta{
 			Name:      "coffee-minion",
@@ -576,16 +743,16 @@ func getMergableDefaults() (cafeMaster, coffeeMinion, teaMinion extensions.Ingre
 				"nginx.org/mergeable-ingress-type": "minion",
 			},
 		},
-		Spec: extensions.IngressSpec{
-			Rules: []extensions.IngressRule{
+		Spec: networking.IngressSpec{
+			Rules: []networking.IngressRule{
 				{
 					Host: "ok.com",
-					IngressRuleValue: extensions.IngressRuleValue{
-						HTTP: &extensions.HTTPIngressRuleValue{
-							Paths: []extensions.HTTPIngressPath{
+					IngressRuleValue: networking.IngressRuleValue{
+						HTTP: &networking.HTTPIngressRuleValue{
+							Paths: []networking.HTTPIngressPath{
 								{
 									Path: "/coffee",
-									Backend: extensions.IngressBackend{
+									Backend: networking.IngressBackend{
 										ServiceName: "coffee-svc",
 										ServicePort: intstr.IntOrString{
 											StrVal: "80",
@@ -598,9 +765,9 @@ func getMergableDefaults() (cafeMaster, coffeeMinion, teaMinion extensions.Ingre
 				},
 			},
 		},
-		Status: extensions.IngressStatus{},
+		Status: networking.IngressStatus{},
 	}
-	teaMinion = extensions.Ingress{
+	teaMinion = networking.Ingress{
 		TypeMeta: meta_v1.TypeMeta{},
 		ObjectMeta: meta_v1.ObjectMeta{
 			Name:      "tea-minion",
@@ -610,13 +777,13 @@ func getMergableDefaults() (cafeMaster, coffeeMinion, teaMinion extensions.Ingre
 				"nginx.org/mergeable-ingress-type": "minion",
 			},
 		},
-		Spec: extensions.IngressSpec{
-			Rules: []extensions.IngressRule{
+		Spec: networking.IngressSpec{
+			Rules: []networking.IngressRule{
 				{
 					Host: "ok.com",
-					IngressRuleValue: extensions.IngressRuleValue{
-						HTTP: &extensions.HTTPIngressRuleValue{
-							Paths: []extensions.HTTPIngressPath{
+					IngressRuleValue: networking.IngressRuleValue{
+						HTTP: &networking.HTTPIngressRuleValue{
+							Paths: []networking.HTTPIngressPath{
 								{
 									Path: "/tea",
 								},
@@ -626,14 +793,14 @@ func getMergableDefaults() (cafeMaster, coffeeMinion, teaMinion extensions.Ingre
 				},
 			},
 		},
-		Status: extensions.IngressStatus{},
+		Status: networking.IngressStatus{},
 	}
 
 	ingExMap := make(map[string]*configs.IngressEx)
 	cafeMasterIngEx, _ := lbc.createIngress(&cafeMaster)
 	ingExMap["default-cafe-master"] = cafeMasterIngEx
 
-	cnf := configs.NewConfigurator(&nginx.LocalManager{}, &configs.StaticConfigParams{}, &configs.ConfigParams{}, &configs.GlobalConfigParams{}, &version1.TemplateExecutor{}, &version2.TemplateExecutor{}, false, false)
+	cnf := configs.NewConfigurator(&nginx.LocalManager{}, &configs.StaticConfigParams{}, &configs.ConfigParams{}, &configs.GlobalConfigParams{}, &version1.TemplateExecutor{}, &version2.TemplateExecutor{}, false, false, nil, false, nil, false)
 
 	// edit private field ingresses to use in testing
 	pointerVal := reflect.ValueOf(cnf)
@@ -652,11 +819,11 @@ func getMergableDefaults() (cafeMaster, coffeeMinion, teaMinion extensions.Ingre
 		metricsCollector: collectors.NewControllerFakeCollector(),
 	}
 	lbc.svcLister, _ = cache.NewInformer(
-		cache.NewListWatchFromClient(lbc.client.ExtensionsV1beta1().RESTClient(), "services", "default", fields.Everything()),
-		&extensions.Ingress{}, time.Duration(1), nil)
+		cache.NewListWatchFromClient(lbc.client.NetworkingV1beta1().RESTClient(), "services", "default", fields.Everything()),
+		&networking.Ingress{}, time.Duration(1), nil)
 	lbc.ingressLister.Store, _ = cache.NewInformer(
-		cache.NewListWatchFromClient(lbc.client.ExtensionsV1beta1().RESTClient(), "ingresses", "default", fields.Everything()),
-		&extensions.Ingress{}, time.Duration(1), nil)
+		cache.NewListWatchFromClient(lbc.client.NetworkingV1beta1().RESTClient(), "ingresses", "default", fields.Everything()),
+		&networking.Ingress{}, time.Duration(1), nil)
 
 	return
 }
@@ -847,7 +1014,7 @@ func TestFindProbeForPods(t *testing.T) {
 
 func TestGetServicePortForIngressPort(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset()
-	cnf := configs.NewConfigurator(&nginx.LocalManager{}, &configs.StaticConfigParams{}, &configs.ConfigParams{}, &configs.GlobalConfigParams{}, &version1.TemplateExecutor{}, &version2.TemplateExecutor{}, false, false)
+	cnf := configs.NewConfigurator(&nginx.LocalManager{}, &configs.StaticConfigParams{}, &configs.ConfigParams{}, &configs.GlobalConfigParams{}, &version1.TemplateExecutor{}, &version2.TemplateExecutor{}, false, false, nil, false, nil, false)
 	lbc := LoadBalancerController{
 		client:           fakeClient,
 		ingressClass:     "nginx",
@@ -898,7 +1065,7 @@ func TestGetServicePortForIngressPort(t *testing.T) {
 func TestFindIngressesForSecret(t *testing.T) {
 	testCases := []struct {
 		secret         v1.Secret
-		ingress        extensions.Ingress
+		ingress        networking.Ingress
 		expectedToFind bool
 		desc           string
 	}{
@@ -909,13 +1076,13 @@ func TestFindIngressesForSecret(t *testing.T) {
 					Namespace: "namespace-1",
 				},
 			},
-			ingress: extensions.Ingress{
+			ingress: networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Name:      "my-ingress",
 					Namespace: "namespace-1",
 				},
-				Spec: extensions.IngressSpec{
-					TLS: []extensions.IngressTLS{
+				Spec: networking.IngressSpec{
+					TLS: []networking.IngressTLS{
 						{
 							SecretName: "my-tls-secret",
 						},
@@ -932,13 +1099,13 @@ func TestFindIngressesForSecret(t *testing.T) {
 					Namespace: "namespace-1",
 				},
 			},
-			ingress: extensions.Ingress{
+			ingress: networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Name:      "my-ingress",
 					Namespace: "namespace-2",
 				},
-				Spec: extensions.IngressSpec{
-					TLS: []extensions.IngressTLS{
+				Spec: networking.IngressSpec{
+					TLS: []networking.IngressTLS{
 						{
 							SecretName: "my-tls-secret",
 						},
@@ -955,7 +1122,7 @@ func TestFindIngressesForSecret(t *testing.T) {
 					Namespace: "namespace-1",
 				},
 			},
-			ingress: extensions.Ingress{
+			ingress: networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Name:      "my-ingress",
 					Namespace: "namespace-1",
@@ -974,7 +1141,7 @@ func TestFindIngressesForSecret(t *testing.T) {
 					Namespace: "namespace-1",
 				},
 			},
-			ingress: extensions.Ingress{
+			ingress: networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Name:      "my-ingress",
 					Namespace: "namespace-2",
@@ -1004,7 +1171,7 @@ func TestFindIngressesForSecret(t *testing.T) {
 
 			manager := nginx.NewFakeManager("/etc/nginx")
 
-			cnf := configs.NewConfigurator(manager, &configs.StaticConfigParams{}, &configs.ConfigParams{}, &configs.GlobalConfigParams{}, templateExecutor, templateExecutorV2, false, false)
+			cnf := configs.NewConfigurator(manager, &configs.StaticConfigParams{}, &configs.ConfigParams{}, &configs.GlobalConfigParams{}, templateExecutor, templateExecutorV2, false, false, nil, false, nil, false)
 			lbc := LoadBalancerController{
 				client:           fakeClient,
 				ingressClass:     "nginx",
@@ -1014,8 +1181,8 @@ func TestFindIngressesForSecret(t *testing.T) {
 			}
 
 			lbc.ingressLister.Store, _ = cache.NewInformer(
-				cache.NewListWatchFromClient(lbc.client.ExtensionsV1beta1().RESTClient(), "ingresses", "default", fields.Everything()),
-				&extensions.Ingress{}, time.Duration(1), nil)
+				cache.NewListWatchFromClient(lbc.client.NetworkingV1beta1().RESTClient(), "ingresses", "default", fields.Everything()),
+				&networking.Ingress{}, time.Duration(1), nil)
 
 			lbc.secretLister.Store, lbc.secretController = cache.NewInformer(
 				cache.NewListWatchFromClient(lbc.client.CoreV1().RESTClient(), "secrets", "default", fields.Everything()),
@@ -1068,7 +1235,7 @@ func TestFindIngressesForSecret(t *testing.T) {
 func TestFindIngressesForSecretWithMinions(t *testing.T) {
 	testCases := []struct {
 		secret         v1.Secret
-		ingress        extensions.Ingress
+		ingress        networking.Ingress
 		expectedToFind bool
 		desc           string
 	}{
@@ -1079,7 +1246,7 @@ func TestFindIngressesForSecretWithMinions(t *testing.T) {
 					Namespace: "default",
 				},
 			},
-			ingress: extensions.Ingress{
+			ingress: networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Name:      "cafe-ingress-tea-minion",
 					Namespace: "default",
@@ -1089,16 +1256,16 @@ func TestFindIngressesForSecretWithMinions(t *testing.T) {
 						configs.JWTKeyAnnotation:           "my-jwk-secret",
 					},
 				},
-				Spec: extensions.IngressSpec{
-					Rules: []extensions.IngressRule{
+				Spec: networking.IngressSpec{
+					Rules: []networking.IngressRule{
 						{
 							Host: "cafe.example.com",
-							IngressRuleValue: extensions.IngressRuleValue{
-								HTTP: &extensions.HTTPIngressRuleValue{
-									Paths: []extensions.HTTPIngressPath{
+							IngressRuleValue: networking.IngressRuleValue{
+								HTTP: &networking.HTTPIngressRuleValue{
+									Paths: []networking.HTTPIngressPath{
 										{
 											Path: "/tea",
-											Backend: extensions.IngressBackend{
+											Backend: networking.IngressBackend{
 												ServiceName: "tea-svc",
 												ServicePort: intstr.FromString("80"),
 											},
@@ -1120,7 +1287,7 @@ func TestFindIngressesForSecretWithMinions(t *testing.T) {
 					Namespace: "namespace-1",
 				},
 			},
-			ingress: extensions.Ingress{
+			ingress: networking.Ingress{
 				ObjectMeta: meta_v1.ObjectMeta{
 					Name:      "cafe-ingress-tea-minion",
 					Namespace: "default",
@@ -1130,16 +1297,16 @@ func TestFindIngressesForSecretWithMinions(t *testing.T) {
 						configs.JWTKeyAnnotation:           "my-jwk-secret",
 					},
 				},
-				Spec: extensions.IngressSpec{
-					Rules: []extensions.IngressRule{
+				Spec: networking.IngressSpec{
+					Rules: []networking.IngressRule{
 						{
 							Host: "cafe.example.com",
-							IngressRuleValue: extensions.IngressRuleValue{
-								HTTP: &extensions.HTTPIngressRuleValue{
-									Paths: []extensions.HTTPIngressPath{
+							IngressRuleValue: networking.IngressRuleValue{
+								HTTP: &networking.HTTPIngressRuleValue{
+									Paths: []networking.HTTPIngressPath{
 										{
 											Path: "/tea",
-											Backend: extensions.IngressBackend{
+											Backend: networking.IngressBackend{
 												ServiceName: "tea-svc",
 												ServicePort: intstr.FromString("80"),
 											},
@@ -1156,7 +1323,7 @@ func TestFindIngressesForSecretWithMinions(t *testing.T) {
 		},
 	}
 
-	master := extensions.Ingress{
+	master := networking.Ingress{
 		ObjectMeta: meta_v1.ObjectMeta{
 			Name:      "cafe-ingress-master",
 			Namespace: "default",
@@ -1165,13 +1332,13 @@ func TestFindIngressesForSecretWithMinions(t *testing.T) {
 				"nginx.org/mergeable-ingress-type": "master",
 			},
 		},
-		Spec: extensions.IngressSpec{
-			Rules: []extensions.IngressRule{
+		Spec: networking.IngressSpec{
+			Rules: []networking.IngressRule{
 				{
 					Host: "cafe.example.com",
-					IngressRuleValue: extensions.IngressRuleValue{
-						HTTP: &extensions.HTTPIngressRuleValue{ // HTTP must not be nil for Master
-							Paths: []extensions.HTTPIngressPath{},
+					IngressRuleValue: networking.IngressRuleValue{
+						HTTP: &networking.HTTPIngressRuleValue{ // HTTP must not be nil for Master
+							Paths: []networking.HTTPIngressPath{},
 						},
 					},
 				},
@@ -1195,7 +1362,7 @@ func TestFindIngressesForSecretWithMinions(t *testing.T) {
 
 			manager := nginx.NewFakeManager("/etc/nginx")
 
-			cnf := configs.NewConfigurator(manager, &configs.StaticConfigParams{}, &configs.ConfigParams{}, &configs.GlobalConfigParams{}, templateExecutor, templateExecutorV2, false, false)
+			cnf := configs.NewConfigurator(manager, &configs.StaticConfigParams{}, &configs.ConfigParams{}, &configs.GlobalConfigParams{}, templateExecutor, templateExecutorV2, false, false, nil, false, nil, false)
 			lbc := LoadBalancerController{
 				client:           fakeClient,
 				ingressClass:     "nginx",
@@ -1205,8 +1372,8 @@ func TestFindIngressesForSecretWithMinions(t *testing.T) {
 			}
 
 			lbc.ingressLister.Store, _ = cache.NewInformer(
-				cache.NewListWatchFromClient(lbc.client.ExtensionsV1beta1().RESTClient(), "ingresses", "default", fields.Everything()),
-				&extensions.Ingress{}, time.Duration(1), nil)
+				cache.NewListWatchFromClient(lbc.client.NetworkingV1beta1().RESTClient(), "ingresses", "default", fields.Everything()),
+				&networking.Ingress{}, time.Duration(1), nil)
 
 			lbc.secretLister.Store, lbc.secretController = cache.NewInformer(
 				cache.NewListWatchFromClient(lbc.client.CoreV1().RESTClient(), "secrets", "default", fields.Everything()),
@@ -1382,6 +1549,55 @@ func TestFindVirtualServerRoutesForService(t *testing.T) {
 	}
 }
 
+func TestFindOrphanedVirtualServerRoute(t *testing.T) {
+	vsr1 := conf_v1.VirtualServerRoute{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vsr-1",
+			Namespace: "ns-1",
+		},
+	}
+
+	vsr2 := conf_v1.VirtualServerRoute{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vsr-2",
+			Namespace: "ns-1",
+		},
+	}
+
+	vsr3 := conf_v1.VirtualServerRoute{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vsr-3",
+			Namespace: "ns-2",
+		},
+	}
+
+	vsr4 := conf_v1.VirtualServerRoute{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vsr-4",
+			Namespace: "ns-1",
+		},
+	}
+
+	vsr5 := conf_v1.VirtualServerRoute{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vsr-5",
+			Namespace: "ns-3",
+		},
+	}
+
+	vsrs := []*conf_v1.VirtualServerRoute{&vsr1, &vsr2, &vsr3, &vsr4, &vsr5}
+
+	handledVSRs := []*conf_v1.VirtualServerRoute{&vsr3}
+
+	expected := []*conf_v1.VirtualServerRoute{&vsr1, &vsr2, &vsr4, &vsr5}
+
+	result := findOrphanedVirtualServerRoutes(vsrs, handledVSRs)
+
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("findOrphanedVirtualServerRoutes return %v but expected %v", result, expected)
+	}
+}
+
 func TestFindTransportServersForService(t *testing.T) {
 	ts1 := conf_v1alpha1.TransportServer{
 		ObjectMeta: meta_v1.ObjectMeta{
@@ -1504,6 +1720,200 @@ func TestFindVirtualServersForSecret(t *testing.T) {
 	}
 }
 
+func TestFindVirtualServersForPolicy(t *testing.T) {
+	vs1 := conf_v1.VirtualServer{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vs-1",
+			Namespace: "ns-1",
+		},
+		Spec: conf_v1.VirtualServerSpec{
+			Policies: []conf_v1.PolicyReference{
+				{
+					Name:      "test-policy",
+					Namespace: "ns-1",
+				},
+			},
+		},
+	}
+	vs2 := conf_v1.VirtualServer{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vs-2",
+			Namespace: "ns-1",
+		},
+		Spec: conf_v1.VirtualServerSpec{
+			Policies: []conf_v1.PolicyReference{
+				{
+					Name:      "some-policy",
+					Namespace: "ns-1",
+				},
+			},
+		},
+	}
+	vs3 := conf_v1.VirtualServer{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vs-3",
+			Namespace: "ns-1",
+		},
+		Spec: conf_v1.VirtualServerSpec{
+			Routes: []conf_v1.Route{
+				{
+					Policies: []conf_v1.PolicyReference{
+						{
+							Name:      "test-policy",
+							Namespace: "ns-1",
+						},
+					},
+				},
+			},
+		},
+	}
+	vs4 := conf_v1.VirtualServer{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vs-4",
+			Namespace: "ns-1",
+		},
+		Spec: conf_v1.VirtualServerSpec{
+			Routes: []conf_v1.Route{
+				{
+					Policies: []conf_v1.PolicyReference{
+						{
+							Name:      "some-policy",
+							Namespace: "ns-1",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	virtualServers := []*conf_v1.VirtualServer{&vs1, &vs2, &vs3, &vs4}
+
+	expected := []*conf_v1.VirtualServer{&vs1, &vs3}
+
+	result := findVirtualServersForPolicy(virtualServers, "ns-1", "test-policy")
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("findVirtualServersForPolicy() returned %v but expected %v", result, expected)
+	}
+}
+
+func TestIsPolicyIsReferenced(t *testing.T) {
+	tests := []struct {
+		policies          []conf_v1.PolicyReference
+		resourceNamespace string
+		policyNamespace   string
+		policyName        string
+		expected          bool
+		msg               string
+	}{
+		{
+			policies: []conf_v1.PolicyReference{
+				{
+					Name: "test-policy",
+				},
+			},
+			resourceNamespace: "ns-1",
+			policyNamespace:   "ns-1",
+			policyName:        "test-policy",
+			expected:          true,
+			msg:               "reference with implicit namespace",
+		},
+		{
+			policies: []conf_v1.PolicyReference{
+				{
+					Name:      "test-policy",
+					Namespace: "ns-1",
+				},
+			},
+			resourceNamespace: "ns-1",
+			policyNamespace:   "ns-1",
+			policyName:        "test-policy",
+			expected:          true,
+			msg:               "reference with explicit namespace",
+		},
+		{
+			policies: []conf_v1.PolicyReference{
+				{
+					Name: "test-policy",
+				},
+			},
+			resourceNamespace: "ns-2",
+			policyNamespace:   "ns-1",
+			policyName:        "test-policy",
+			expected:          false,
+			msg:               "wrong namespace with implicit namespace",
+		},
+		{
+			policies: []conf_v1.PolicyReference{
+				{
+					Name:      "test-policy",
+					Namespace: "ns-2",
+				},
+			},
+			resourceNamespace: "ns-2",
+			policyNamespace:   "ns-1",
+			policyName:        "test-policy",
+			expected:          false,
+			msg:               "wrong namespace with explicit namespace",
+		},
+	}
+
+	for _, test := range tests {
+		result := isPolicyReferenced(test.policies, test.resourceNamespace, test.policyNamespace, test.policyName)
+		if result != test.expected {
+			t.Errorf("isPolicyReferenced() returned %v but expected %v for the case of %s", result,
+				test.expected, test.msg)
+		}
+	}
+}
+
+func TestFindVirtualServerRoutesForPolicy(t *testing.T) {
+	vsr1 := conf_v1.VirtualServerRoute{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vsr-1",
+			Namespace: "ns-1",
+		},
+		Spec: conf_v1.VirtualServerRouteSpec{
+			Subroutes: []conf_v1.Route{
+				{
+					Policies: []conf_v1.PolicyReference{
+						{
+							Name:      "test-policy",
+							Namespace: "ns-1",
+						},
+					},
+				},
+			},
+		},
+	}
+	vsr2 := conf_v1.VirtualServerRoute{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "vsr-2",
+			Namespace: "ns-1",
+		},
+		Spec: conf_v1.VirtualServerRouteSpec{
+			Subroutes: []conf_v1.Route{
+				{
+					Policies: []conf_v1.PolicyReference{
+						{
+							Name:      "some-policy",
+							Namespace: "ns-1",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	virtualServerRoutes := []*conf_v1.VirtualServerRoute{&vsr1, &vsr2}
+
+	expected := []*conf_v1.VirtualServerRoute{&vsr1}
+
+	result := findVirtualServerRoutesForPolicy(virtualServerRoutes, "ns-1", "test-policy")
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("findVirtualServerRoutesForPolicy() returned %v but expected %v", result, expected)
+	}
+}
+
 func TestFindVirtualServersForVirtualServerRoute(t *testing.T) {
 	vs1 := conf_v1.VirtualServer{
 		ObjectMeta: meta_v1.ObjectMeta{
@@ -1577,16 +1987,25 @@ func TestFormatWarningsMessages(t *testing.T) {
 }
 
 func TestGetEndpointsBySubselectedPods(t *testing.T) {
+	boolPointer := func(b bool) *bool { return &b }
 	tests := []struct {
 		desc        string
 		targetPort  int32
 		svcEps      v1.Endpoints
-		expectedEps []string
+		expectedEps []podEndpoint
 	}{
 		{
-			desc:        "find one endpoint",
-			targetPort:  80,
-			expectedEps: []string{"1.2.3.4:80"},
+			desc:       "find one endpoint",
+			targetPort: 80,
+			expectedEps: []podEndpoint{
+				{
+					Address: "1.2.3.4:80",
+					MeshPodOwner: configs.MeshPodOwner{
+						OwnerType: "deployment",
+						OwnerName: "deploy-1",
+					},
+				},
+			},
 		},
 		{
 			desc:        "targetPort mismatch",
@@ -1597,6 +2016,15 @@ func TestGetEndpointsBySubselectedPods(t *testing.T) {
 
 	pods := []*v1.Pod{
 		{
+			ObjectMeta: meta_v1.ObjectMeta{
+				OwnerReferences: []meta_v1.OwnerReference{
+					{
+						Kind:       "Deployment",
+						Name:       "deploy-1",
+						Controller: boolPointer(true),
+					},
+				},
+			},
 			Status: v1.PodStatus{
 				PodIP: "1.2.3.4",
 			},
@@ -1628,5 +2056,751 @@ func TestGetEndpointsBySubselectedPods(t *testing.T) {
 				t.Errorf("getEndpointsBySubselectedPods() = %v, want %v", gotEndps, test.expectedEps)
 			}
 		})
+	}
+}
+
+func TestGetStatusFromEventTitle(t *testing.T) {
+	tests := []struct {
+		eventTitle string
+		expected   string
+	}{
+		{
+			eventTitle: "",
+			expected:   "",
+		},
+		{
+			eventTitle: "AddedOrUpdatedWithError",
+			expected:   "Invalid",
+		},
+		{
+			eventTitle: "Rejected",
+			expected:   "Invalid",
+		},
+		{
+			eventTitle: "NoVirtualServersFound",
+			expected:   "Invalid",
+		},
+		{
+			eventTitle: "Missing Secret",
+			expected:   "Invalid",
+		},
+		{
+			eventTitle: "UpdatedWithError",
+			expected:   "Invalid",
+		},
+		{
+			eventTitle: "AddedOrUpdatedWithWarning",
+			expected:   "Warning",
+		},
+		{
+			eventTitle: "UpdatedWithWarning",
+			expected:   "Warning",
+		},
+		{
+			eventTitle: "AddedOrUpdated",
+			expected:   "Valid",
+		},
+		{
+			eventTitle: "Updated",
+			expected:   "Valid",
+		},
+		{
+			eventTitle: "New State",
+			expected:   "",
+		},
+	}
+
+	for _, test := range tests {
+		result := getStatusFromEventTitle(test.eventTitle)
+		if result != test.expected {
+			t.Errorf("getStatusFromEventTitle(%v) returned %v but expected %v", test.eventTitle, result, test.expected)
+		}
+	}
+}
+
+func TestGetPolicies(t *testing.T) {
+	validPolicy := &conf_v1alpha1.Policy{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "valid-policy",
+			Namespace: "default",
+		},
+		Spec: conf_v1alpha1.PolicySpec{
+			AccessControl: &conf_v1alpha1.AccessControl{
+				Allow: []string{"127.0.0.1"},
+			},
+		},
+	}
+
+	invalidPolicy := &conf_v1alpha1.Policy{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "invalid-policy",
+			Namespace: "default",
+		},
+		Spec: conf_v1alpha1.PolicySpec{},
+	}
+
+	lbc := LoadBalancerController{
+		isNginxPlus: true,
+		policyLister: &cache.FakeCustomStore{
+			GetByKeyFunc: func(key string) (item interface{}, exists bool, err error) {
+				switch key {
+				case "default/valid-policy":
+					return validPolicy, true, nil
+				case "default/invalid-policy":
+					return invalidPolicy, true, nil
+				case "nginx-ingress/valid-policy":
+					return nil, false, nil
+				default:
+					return nil, false, errors.New("GetByKey error")
+				}
+			},
+		},
+	}
+
+	policyRefs := []conf_v1.PolicyReference{
+		{
+			Name: "valid-policy",
+			// Namespace is implicit here
+		},
+		{
+			Name:      "invalid-policy",
+			Namespace: "default",
+		},
+		{
+			Name:      "valid-policy", // doesn't exist
+			Namespace: "nginx-ingress",
+		},
+		{
+			Name:      "some-policy", // will make lister return error
+			Namespace: "nginx-ingress",
+		},
+	}
+
+	expectedPolicies := []*conf_v1alpha1.Policy{validPolicy}
+	expectedErrors := []error{
+		errors.New("Policy default/invalid-policy is invalid: spec: Invalid value: \"\": must specify exactly one of: `accessControl`, `rateLimit`, `ingressMTLS`, `jwt`"),
+		errors.New("Policy nginx-ingress/valid-policy doesn't exist"),
+		errors.New("Failed to get policy nginx-ingress/some-policy: GetByKey error"),
+	}
+
+	result, errors := lbc.getPolicies(policyRefs, "default")
+	if !reflect.DeepEqual(result, expectedPolicies) {
+		t.Errorf("lbc.getPolicies() returned \n%v but \nexpected %v", result, expectedPolicies)
+	}
+	if !reflect.DeepEqual(errors, expectedErrors) {
+		t.Errorf("lbc.getPolicies() returned \n%v but expected \n%v", errors, expectedErrors)
+	}
+}
+
+func TestCreatePolicyMap(t *testing.T) {
+	policies := []*conf_v1alpha1.Policy{
+		{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "policy-1",
+				Namespace: "default",
+			},
+		},
+		{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "policy-2",
+				Namespace: "default",
+			},
+		},
+		{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "policy-1",
+				Namespace: "default",
+			},
+		},
+		{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "policy-1",
+				Namespace: "nginx-ingress",
+			},
+		},
+	}
+
+	expected := map[string]*conf_v1alpha1.Policy{
+		"default/policy-1": {
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "policy-1",
+				Namespace: "default",
+			},
+		},
+		"default/policy-2": {
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "policy-2",
+				Namespace: "default",
+			},
+		},
+		"nginx-ingress/policy-1": {
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "policy-1",
+				Namespace: "nginx-ingress",
+			},
+		},
+	}
+
+	result := createPolicyMap(policies)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("createPolicyMap() returned \n%s but expected \n%s", policyMapToString(result), policyMapToString(expected))
+	}
+}
+
+func TestGetPodOwnerTypeAndName(t *testing.T) {
+	tests := []struct {
+		desc    string
+		expType string
+		expName string
+		pod     *v1.Pod
+	}{
+		{
+			desc:    "deployment",
+			expType: "deployment",
+			expName: "deploy-name",
+			pod:     &v1.Pod{ObjectMeta: createTestObjMeta("Deployment", "deploy-name", true)},
+		},
+		{
+			desc:    "stateful set",
+			expType: "statefulset",
+			expName: "statefulset-name",
+			pod:     &v1.Pod{ObjectMeta: createTestObjMeta("StatefulSet", "statefulset-name", true)},
+		},
+		{
+			desc:    "daemon set",
+			expType: "daemonset",
+			expName: "daemonset-name",
+			pod:     &v1.Pod{ObjectMeta: createTestObjMeta("DaemonSet", "daemonset-name", true)},
+		},
+		{
+			desc:    "replica set with no pod hash",
+			expType: "deployment",
+			expName: "replicaset-name",
+			pod:     &v1.Pod{ObjectMeta: createTestObjMeta("ReplicaSet", "replicaset-name", false)},
+		},
+		{
+			desc:    "replica set with pod hash",
+			expType: "deployment",
+			expName: "replicaset-name",
+			pod: &v1.Pod{
+				ObjectMeta: createTestObjMeta("ReplicaSet", "replicaset-name-67c6f7c5fd", true),
+			},
+		},
+		{
+			desc:    "nil controller should use default values",
+			expType: "deployment",
+			expName: "deploy-name",
+			pod: &v1.Pod{
+				ObjectMeta: meta_v1.ObjectMeta{
+					OwnerReferences: []meta_v1.OwnerReference{
+						{
+							Name:       "deploy-name",
+							Controller: nil,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			actualType, actualName := getPodOwnerTypeAndName(test.pod)
+			if actualType != test.expType {
+				t.Errorf("getPodOwnerTypeAndName() returned %s for owner type but expected %s", actualType, test.expType)
+			}
+			if actualName != test.expName {
+				t.Errorf("getPodOwnerTypeAndName() returned %s for owner name but expected %s", actualName, test.expName)
+			}
+		})
+	}
+}
+
+func createTestObjMeta(kind, name string, podHashLabel bool) meta_v1.ObjectMeta {
+	controller := true
+	meta := meta_v1.ObjectMeta{
+		OwnerReferences: []meta_v1.OwnerReference{
+			{
+				Kind:       kind,
+				Name:       name,
+				Controller: &controller,
+			},
+		},
+	}
+	if podHashLabel {
+		meta.Labels = map[string]string{
+			"pod-template-hash": "67c6f7c5fd",
+		}
+	}
+	return meta
+}
+
+func policyMapToString(policies map[string]*conf_v1alpha1.Policy) string {
+	var keys []string
+	for k := range policies {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+
+	b.WriteString("[ ")
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%q: '%s/%s', ", k, policies[k].Namespace, policies[k].Name)
+	}
+	b.WriteString("]")
+
+	return b.String()
+}
+
+func TestRemoveDuplicateVirtualServers(t *testing.T) {
+	tests := []struct {
+		virtualServers []*conf_v1.VirtualServer
+		expected       []*conf_v1.VirtualServer
+	}{
+		{
+			[]*conf_v1.VirtualServer{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-1",
+						Namespace: "ns-1",
+					},
+				},
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-2",
+						Namespace: "ns-1",
+					},
+				},
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-2",
+						Namespace: "ns-1",
+					},
+				},
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-3",
+						Namespace: "ns-1",
+					},
+				},
+			},
+			[]*conf_v1.VirtualServer{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-1",
+						Namespace: "ns-1",
+					},
+				},
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-2",
+						Namespace: "ns-1",
+					},
+				},
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-3",
+						Namespace: "ns-1",
+					},
+				},
+			},
+		},
+		{
+			[]*conf_v1.VirtualServer{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-3",
+						Namespace: "ns-2",
+					},
+				},
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-3",
+						Namespace: "ns-1",
+					},
+				},
+			},
+			[]*conf_v1.VirtualServer{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-3",
+						Namespace: "ns-2",
+					},
+				},
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "vs-3",
+						Namespace: "ns-1",
+					},
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		result := removeDuplicateVirtualServers(test.virtualServers)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("removeDuplicateVirtualServers() returned \n%v but expected \n%v", result, test.expected)
+		}
+	}
+}
+
+func TestFindPoliciesForSecret(t *testing.T) {
+	jwtPol1 := &conf_v1alpha1.Policy{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "jwt-policy",
+			Namespace: "default",
+		},
+		Spec: conf_v1alpha1.PolicySpec{
+			JWTAuth: &conf_v1alpha1.JWTAuth{
+				Secret: "jwk-secret",
+			},
+		},
+	}
+
+	jwtPol2 := &conf_v1alpha1.Policy{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "jwt-policy",
+			Namespace: "ns-1",
+		},
+		Spec: conf_v1alpha1.PolicySpec{
+			JWTAuth: &conf_v1alpha1.JWTAuth{
+				Secret: "jwk-secret",
+			},
+		},
+	}
+
+	ingTLSPol := &conf_v1alpha1.Policy{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "ingress-tmls-policy",
+			Namespace: "default",
+		},
+		Spec: conf_v1alpha1.PolicySpec{
+			IngressMTLS: &conf_v1alpha1.IngressMTLS{
+				ClientCertSecret: "ingress-mtls-secret",
+			},
+		},
+	}
+
+	tests := []struct {
+		policies        []*conf_v1alpha1.Policy
+		secretNamespace string
+		secretName      string
+		expected        []*conf_v1alpha1.Policy
+		msg             string
+	}{
+		{
+			policies:        []*conf_v1alpha1.Policy{jwtPol1},
+			secretNamespace: "default",
+			secretName:      "jwk-secret",
+			expected:        []*v1alpha1.Policy{jwtPol1},
+			msg:             "Find policy in default ns",
+		},
+		{
+			policies:        []*conf_v1alpha1.Policy{jwtPol2},
+			secretNamespace: "default",
+			secretName:      "jwk-secret",
+			expected:        nil,
+			msg:             "Ignore policies in other namespaces",
+		},
+		{
+			policies:        []*conf_v1alpha1.Policy{jwtPol1, jwtPol2},
+			secretNamespace: "default",
+			secretName:      "jwk-secret",
+			expected:        []*v1alpha1.Policy{jwtPol1},
+			msg:             "Find policy in default ns, ignore other",
+		},
+		{
+			policies:        []*conf_v1alpha1.Policy{ingTLSPol},
+			secretNamespace: "default",
+			secretName:      "ingress-mtls-secret",
+			expected:        []*v1alpha1.Policy{ingTLSPol},
+			msg:             "Find policy in default ns",
+		},
+		{
+			policies:        []*conf_v1alpha1.Policy{jwtPol1, ingTLSPol},
+			secretNamespace: "default",
+			secretName:      "ingress-mtls-secret",
+			expected:        []*v1alpha1.Policy{ingTLSPol},
+			msg:             "Find policy in default ns, ignore other types",
+		},
+	}
+	for _, test := range tests {
+		result := findPoliciesForSecret(test.policies, test.secretNamespace, test.secretName)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("findPoliciesForSecret() returned \n%v but expected \n%v for the case of %s", result, test.expected, test.msg)
+		}
+	}
+}
+
+func TestAddJWTSecrets(t *testing.T) {
+	validSecret := &v1.Secret{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "valid-jwk-secret",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{"jwk": nil},
+	}
+
+	invalidSecret := &v1.Secret{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "invalid-jwk-secret",
+			Namespace: "default",
+		},
+		Data: nil,
+	}
+
+	tests := []struct {
+		policies        []*conf_v1alpha1.Policy
+		expectedJWTKeys map[string]*v1.Secret
+		wantErr         bool
+		msg             string
+	}{
+		{
+			policies: []*conf_v1alpha1.Policy{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "jwt-policy",
+						Namespace: "default",
+					},
+					Spec: conf_v1alpha1.PolicySpec{
+						JWTAuth: &conf_v1alpha1.JWTAuth{
+							Secret: "valid-jwk-secret",
+							Realm:  "My API",
+						},
+					},
+				},
+			},
+			expectedJWTKeys: map[string]*v1.Secret{
+				"default/valid-jwk-secret": validSecret,
+			},
+			wantErr: false,
+			msg:     "test getting valid secret",
+		},
+		{
+			policies:        []*conf_v1alpha1.Policy{},
+			expectedJWTKeys: map[string]*v1.Secret{},
+			wantErr:         false,
+			msg:             "test getting valid secret with no policy",
+		},
+		{
+			policies: []*conf_v1alpha1.Policy{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "jwt-policy",
+						Namespace: "default",
+					},
+					Spec: conf_v1alpha1.PolicySpec{
+						AccessControl: &conf_v1alpha1.AccessControl{
+							Allow: []string{"127.0.0.1"},
+						},
+					},
+				},
+			},
+			expectedJWTKeys: map[string]*v1.Secret{},
+			wantErr:         false,
+			msg:             "test getting valid secret with wrong policy",
+		},
+		{
+			policies: []*conf_v1alpha1.Policy{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "jwt-policy",
+						Namespace: "default",
+					},
+					Spec: conf_v1alpha1.PolicySpec{
+						JWTAuth: &conf_v1alpha1.JWTAuth{
+							Secret: "non-existing-jwk-secret",
+							Realm:  "My API",
+						},
+					},
+				},
+			},
+			expectedJWTKeys: map[string]*v1.Secret{},
+			wantErr:         true,
+			msg:             "test getting secret that does not exist",
+		},
+		{
+			policies: []*conf_v1alpha1.Policy{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "jwt-policy",
+						Namespace: "default",
+					},
+					Spec: conf_v1alpha1.PolicySpec{
+						JWTAuth: &conf_v1alpha1.JWTAuth{
+							Secret: "invalid-jwk-secret",
+							Realm:  "My API",
+						},
+					},
+				},
+			},
+			expectedJWTKeys: map[string]*v1.Secret{},
+			wantErr:         true,
+			msg:             "test getting invalid secret",
+		},
+	}
+
+	for _, test := range tests {
+		lbc := LoadBalancerController{
+			secretLister: storeToSecretLister{
+				&cache.FakeCustomStore{
+					GetByKeyFunc: func(key string) (item interface{}, exists bool, err error) {
+						switch key {
+						case "default/valid-jwk-secret":
+							return validSecret, true, nil
+						case "default/invalid-jwk-secret":
+							return invalidSecret, true, errors.New("secret is missing jwk key in data")
+						default:
+							return nil, false, errors.New("GetByKey error")
+						}
+					},
+				},
+			},
+		}
+
+		jwtKeys := make(map[string]*v1.Secret)
+
+		err := lbc.addJWTSecrets(test.policies, jwtKeys)
+		if (err != nil) != test.wantErr {
+			t.Errorf("addJWTSecrets() returned %v, for the case of %v", err, test.msg)
+		}
+
+		if !reflect.DeepEqual(jwtKeys, test.expectedJWTKeys) {
+			t.Errorf("addJWTSecrets() returned \n%+v but expected \n%+v", jwtKeys, test.expectedJWTKeys)
+		}
+
+	}
+}
+
+func TestGetIngressMTLSSecret(t *testing.T) {
+	validSecret := &v1.Secret{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "valid-ingress-mtls-secret",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{"ca.crt": nil},
+	}
+
+	invalidSecret := &v1.Secret{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "invalid-ingress-mtls-secret",
+			Namespace: "default",
+		},
+		Data: nil,
+	}
+
+	tests := []struct {
+		policies                  []*conf_v1alpha1.Policy
+		expectedIngressMTLSSecret *v1.Secret
+		wantErr                   bool
+		msg                       string
+	}{
+		{
+			policies: []*conf_v1alpha1.Policy{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "ingress-mtls-policy",
+						Namespace: "default",
+					},
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "valid-ingress-mtls-secret",
+						},
+					},
+				},
+			},
+			expectedIngressMTLSSecret: validSecret,
+			wantErr:                   false,
+			msg:                       "test getting valid secret",
+		},
+		{
+			policies:                  []*conf_v1alpha1.Policy{},
+			expectedIngressMTLSSecret: nil,
+			wantErr:                   false,
+			msg:                       "test getting valid secret with no policy",
+		},
+		{
+			policies: []*conf_v1alpha1.Policy{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "ingress-mtls-policy",
+						Namespace: "default",
+					},
+					Spec: conf_v1alpha1.PolicySpec{
+						AccessControl: &conf_v1alpha1.AccessControl{
+							Allow: []string{"127.0.0.1"},
+						},
+					},
+				},
+			},
+			expectedIngressMTLSSecret: nil,
+			wantErr:                   false,
+			msg:                       "test getting valid secret with wrong policy",
+		},
+		{
+			policies: []*conf_v1alpha1.Policy{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "ingress-mtls-policy",
+						Namespace: "default",
+					},
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "non-existing-ingress-mtls-secret",
+						},
+					},
+				},
+			},
+			expectedIngressMTLSSecret: nil,
+			wantErr:                   true,
+			msg:                       "test getting secret that does not exist",
+		},
+		{
+			policies: []*conf_v1alpha1.Policy{
+				{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "ingress-mtls-policy",
+						Namespace: "default",
+					},
+					Spec: conf_v1alpha1.PolicySpec{
+						IngressMTLS: &conf_v1alpha1.IngressMTLS{
+							ClientCertSecret: "invalid-ingress-mtls-secret",
+						},
+					},
+				},
+			},
+			expectedIngressMTLSSecret: nil,
+			wantErr:                   true,
+			msg:                       "test getting invalid secret",
+		},
+	}
+
+	for _, test := range tests {
+		lbc := LoadBalancerController{
+			secretLister: storeToSecretLister{
+				&cache.FakeCustomStore{
+					GetByKeyFunc: func(key string) (item interface{}, exists bool, err error) {
+						switch key {
+						case "default/valid-ingress-mtls-secret":
+							return validSecret, true, nil
+						case "default/invalid-ingress-mtls-secret":
+							return invalidSecret, true, errors.New("secret is missing ingress-mtls key in data")
+						default:
+							return nil, false, errors.New("GetByKey error")
+						}
+					},
+				},
+			},
+		}
+
+		secret, err := lbc.getIngressMTLSSecret(test.policies)
+		if (err != nil) != test.wantErr {
+			t.Errorf("getIngressMTLSSecret() returned %v, for the case of %v", err, test.msg)
+		}
+		if !reflect.DeepEqual(secret, test.expectedIngressMTLSSecret) {
+			t.Errorf("getIngressMTLSSecret() returned \n%+v but expected \n%+v", secret, test.expectedIngressMTLSSecret)
+		}
+
 	}
 }

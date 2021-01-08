@@ -1,5 +1,15 @@
 package version2
 
+import "fmt"
+
+// UpstreamLabels describes the Prometheus labels for an NGINX upstream.
+type UpstreamLabels struct {
+	Service           string
+	ResourceType      string
+	ResourceName      string
+	ResourceNamespace string
+}
+
 // VirtualServerConfig holds NGINX configuration for a VirtualServer.
 type VirtualServerConfig struct {
 	Server        Server
@@ -7,6 +17,9 @@ type VirtualServerConfig struct {
 	SplitClients  []SplitClient
 	Maps          []Map
 	StatusMatches []StatusMatch
+	LimitReqZones []LimitReqZone
+	HTTPSnippets  []string
+	SpiffeCerts   bool
 }
 
 // Upstream defines an upstream.
@@ -23,6 +36,7 @@ type Upstream struct {
 	UpstreamZoneSize string
 	Queue            *Queue
 	SessionCookie    *SessionCookie
+	UpstreamLabels   UpstreamLabels
 }
 
 // UpstreamServer defines an upstream server.
@@ -44,9 +58,17 @@ type Server struct {
 	InternalRedirectLocations []InternalRedirectLocation
 	Locations                 []Location
 	ErrorPageLocations        []ErrorPageLocation
+	ReturnLocations           []ReturnLocation
 	HealthChecks              []HealthCheck
 	TLSRedirect               *TLSRedirect
 	TLSPassthrough            bool
+	Allow                     []string
+	Deny                      []string
+	LimitReqOptions           LimitReqOptions
+	LimitReqs                 []LimitReq
+	JWTAuth                   *JWTAuth
+	IngressMTLS               *IngressMTLS
+	PoliciesErrorReturn       *Return
 }
 
 // SSL defines SSL configuration for a server.
@@ -55,6 +77,13 @@ type SSL struct {
 	Certificate    string
 	CertificateKey string
 	Ciphers        string
+}
+
+// IngressMTLS defines TLS configuration for a server. This is a subset of TLS specifically for clients auth.
+type IngressMTLS struct {
+	ClientCert   string
+	VerifyClient string
+	VerifyDepth  int
 }
 
 // Location defines a location.
@@ -75,10 +104,31 @@ type Location struct {
 	ProxyNextUpstreamTimeout string
 	ProxyNextUpstreamTries   int
 	ProxyInterceptErrors     bool
+	ProxyPassRequestHeaders  bool
+	ProxySetHeaders          []Header
+	ProxyHideHeaders         []string
+	ProxyPassHeaders         []string
+	ProxyIgnoreHeaders       string
+	ProxyPassRewrite         string
+	AddHeaders               []AddHeader
+	Rewrites                 []string
 	HasKeepalive             bool
-	DefaultType              string
-	Return                   *Return
 	ErrorPages               []ErrorPage
+	ProxySSLName             string
+	InternalProxyPass        string
+	Allow                    []string
+	Deny                     []string
+	LimitReqOptions          LimitReqOptions
+	LimitReqs                []LimitReq
+	JWTAuth                  *JWTAuth
+	PoliciesErrorReturn      *Return
+}
+
+// ReturnLocation defines a location for returning a fixed response.
+type ReturnLocation struct {
+	Name        string
+	DefaultType string
+	Return      Return
 }
 
 // SplitClient defines a split_clients.
@@ -113,6 +163,12 @@ type ErrorPageLocation struct {
 type Header struct {
 	Name  string
 	Value string
+}
+
+// AddHeader defines a header to use with add_header directive with an optional Always field.
+type AddHeader struct {
+	Header
+	Always bool
 }
 
 // HealthCheck defines a HealthCheck for an upstream in a Server.
@@ -184,4 +240,46 @@ type StatusMatch struct {
 type Queue struct {
 	Size    int
 	Timeout string
+}
+
+// LimitReqZone defines a rate limit shared memory zone.
+type LimitReqZone struct {
+	Key      string
+	ZoneName string
+	ZoneSize string
+	Rate     string
+}
+
+func (rlz LimitReqZone) String() string {
+	return fmt.Sprintf("{Key %q, ZoneName %q, ZoneSize %v, Rate %q}", rlz.Key, rlz.ZoneName, rlz.ZoneSize, rlz.Rate)
+}
+
+// LimitReq defines a rate limit.
+type LimitReq struct {
+	ZoneName string
+	Burst    int
+	NoDelay  bool
+	Delay    int
+}
+
+func (rl LimitReq) String() string {
+	return fmt.Sprintf("{ZoneName %q, Burst %q, NoDelay %v, Delay %q}", rl.ZoneName, rl.Burst, rl.NoDelay, rl.Delay)
+}
+
+// LimitReqOptions defines rate limit options.
+type LimitReqOptions struct {
+	DryRun     bool
+	LogLevel   string
+	RejectCode int
+}
+
+func (rl LimitReqOptions) String() string {
+	return fmt.Sprintf("{DryRun %v, LogLevel %q, RejectCode %q}", rl.DryRun, rl.LogLevel, rl.RejectCode)
+}
+
+// JWTAuth holds JWT authentication configuration.
+type JWTAuth struct {
+	Secret string
+	Realm  string
+	Token  string
 }

@@ -21,7 +21,7 @@ data:
   resolver-addresses: "10.0.0.10"
 ```
 
-Additional resolver parameters, including the caching of DNS records, are available. Check the corresponding [ConfigMap and Annotations](../../docs/configmap-and-annotations.md) section.
+Additional resolver parameters, including the caching of DNS records, are available. Check the corresponding [ConfigMap](https://docs.nginx.com/nginx-ingress-controller/configuration/global-configuration/configmap-resource/) section.
 
 
 ## Example
@@ -40,7 +40,7 @@ spec:
 In the following Ingress resource we use my-service:
 
 ```yaml
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: example-ingress

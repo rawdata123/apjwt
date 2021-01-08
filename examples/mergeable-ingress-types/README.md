@@ -63,7 +63,7 @@ load balancing for that application using Ingress resources with the `nginx.org/
 
 ## 1. Deploy the Ingress Controller
 
-1. Follow the installation [instructions](../../docs/installation.md) to deploy the Ingress controller.
+1. Follow the [installation](https://docs.nginx.com/nginx-ingress-controller/installation/installation-with-manifests/) instructions to deploy the Ingress controller.
 
 2. Save the public IP address of the Ingress controller into a shell variable:
     ```
@@ -134,7 +134,7 @@ nginx-ingress-66bc44674b-hrcx8   1/1       Running   0          4m
 
 2. Examine the NGINX Configuration.
 ```
-$ kubectl exec -it nginx-ingress-66bc44674b-hrcx8 -n nginx-ingress cat /etc/nginx/conf.d/default-cafe-ingress-master.conf
+$ kubectl exec -it nginx-ingress-66bc44674b-hrcx8 -n nginx-ingress -- cat /etc/nginx/conf.d/default-cafe-ingress-master.conf
 
 upstream default-cafe-ingress-coffee-minion-cafe.example.com-coffee-svc {
 	server 172.17.0.5:80;

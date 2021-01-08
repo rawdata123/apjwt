@@ -14,13 +14,13 @@ Here each service follows the following syntactic rule:
 ```
 serviceName=serviceName cookieName [expires=time] [domain=domain] [httponly] [secure] [path=path]
 ```
-The syntax of the *cookieName*, *expires*, *domain*, *httponly*, *secure* and *path* parameters is the same as for the [sticky directive](http://nginx.org/en/docs/http/ngx_http_upstream_module.html#sticky) in the NGINX Plus configuration.
+The syntax of the *cookieName*, *expires*, *domain*, *httponly*, *secure* and *path* parameters is the same as for the [sticky directive](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#sticky) in the NGINX Plus configuration.
 
 ## Example
 
 In the following example we enable session persistence for two services -- the *tea-svc* service and the *coffee-svc* service:
 ```yaml
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: cafe-ingress-with-session-persistence

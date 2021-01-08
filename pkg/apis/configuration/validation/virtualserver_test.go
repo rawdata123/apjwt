@@ -54,7 +54,9 @@ func TestValidateVirtualServer(t *testing.T) {
 		},
 	}
 
-	err := ValidateVirtualServer(&virtualServer, false)
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	err := vsv.ValidateVirtualServer(&virtualServer)
 	if err != nil {
 		t.Errorf("ValidateVirtualServer() returned error %v for valid input %v", err, virtualServer)
 	}
@@ -86,6 +88,116 @@ func TestValidateHost(t *testing.T) {
 		allErrs := validateHost(h, field.NewPath("host"))
 		if len(allErrs) == 0 {
 			t.Errorf("validateHost(%q) returned no errors for invalid input", h)
+		}
+	}
+}
+
+func TestValidatePolicies(t *testing.T) {
+	tests := []struct {
+		policies []v1.PolicyReference
+		msg      string
+	}{
+		{
+			policies: []v1.PolicyReference{
+				{
+					Name: "my-policy",
+				},
+			},
+			msg: "name without namespace",
+		},
+		{
+			policies: []v1.PolicyReference{
+				{
+					Name:      "my-policy",
+					Namespace: "nginx-ingress",
+				},
+			},
+			msg: "name with namespace",
+		},
+		{
+			policies: []v1.PolicyReference{
+				{
+					Name:      "my-policy",
+					Namespace: "default",
+				},
+				{
+					Name:      "my-policy",
+					Namespace: "test",
+				},
+			},
+			msg: "same name different namespaces",
+		},
+	}
+
+	for _, test := range tests {
+		allErrs := validatePolicies(test.policies, field.NewPath("policies"), "default")
+		if len(allErrs) > 0 {
+			t.Errorf("validatePolicies() returned errors %v for valid input for the case of %s", allErrs, test.msg)
+		}
+	}
+}
+
+func TestValidatePoliciesFails(t *testing.T) {
+	tests := []struct {
+		policies []v1.PolicyReference
+		msg      string
+	}{
+		{
+			policies: []v1.PolicyReference{
+				{
+					Name: "",
+				},
+			},
+			msg: "missing name",
+		},
+		{
+			policies: []v1.PolicyReference{
+				{
+					Name: "-invalid",
+				},
+			},
+			msg: "invalid name",
+		},
+		{
+			policies: []v1.PolicyReference{
+				{
+					Name:      "my-policy",
+					Namespace: "-invalid",
+				},
+			},
+			msg: "invalid namespace",
+		},
+		{
+			policies: []v1.PolicyReference{
+				{
+					Name:      "my-policy",
+					Namespace: "default",
+				},
+				{
+					Name:      "my-policy",
+					Namespace: "default",
+				},
+			},
+			msg: "duplicated policies",
+		},
+		{
+			policies: []v1.PolicyReference{
+				{
+					Name:      "my-policy",
+					Namespace: "default",
+				},
+				{
+					Name: "my-policy",
+				},
+			},
+			msg: "duplicated policies with inferred namespace",
+		},
+	}
+
+	for _, test := range tests {
+		allErrs := validatePolicies(test.policies, field.NewPath("policies"), "default")
+		if len(allErrs) == 0 {
+			t.Errorf("validatePolicies() returned no errors for invalid input for the case of %s", test.msg)
 		}
 	}
 }
@@ -205,9 +317,11 @@ func TestValidateUpstreams(t *testing.T) {
 			msg: "2 valid upstreams",
 		},
 	}
-	isPlus := false
+
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs, resultUpstreamNames := validateUpstreams(test.upstreams, field.NewPath("upstreams"), isPlus)
+		allErrs, resultUpstreamNames := vsv.validateUpstreams(test.upstreams, field.NewPath("upstreams"))
 		if len(allErrs) > 0 {
 			t.Errorf("validateUpstreams() returned errors %v for valid input for the case of %s", allErrs, test.msg)
 		}
@@ -430,9 +544,10 @@ func TestValidateUpstreamsFails(t *testing.T) {
 		},
 	}
 
-	isPlus := false
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs, resultUpstreamNames := validateUpstreams(test.upstreams, field.NewPath("upstreams"), isPlus)
+		allErrs, resultUpstreamNames := vsv.validateUpstreams(test.upstreams, field.NewPath("upstreams"))
 		if len(allErrs) == 0 {
 			t.Errorf("validateUpstreams() returned no errors for the case of %s", test.msg)
 		}
@@ -534,8 +649,10 @@ func TestValidateVirtualServerRoutes(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateVirtualServerRoutes(test.routes, field.NewPath("routes"), test.upstreamNames)
+		allErrs := vsv.validateVirtualServerRoutes(test.routes, field.NewPath("routes"), test.upstreamNames, "default")
 		if len(allErrs) > 0 {
 			t.Errorf("validateVirtualServerRoutes() returned errors %v for valid input for the case of %s", allErrs, test.msg)
 		}
@@ -582,8 +699,10 @@ func TestValidateVirtualServerRoutesFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateVirtualServerRoutes(test.routes, field.NewPath("routes"), test.upstreamNames)
+		allErrs := vsv.validateVirtualServerRoutes(test.routes, field.NewPath("routes"), test.upstreamNames, "default")
 		if len(allErrs) == 0 {
 			t.Errorf("validateVirtualServerRoutes() returned no errors for the case of %s", test.msg)
 		}
@@ -675,8 +794,10 @@ func TestValidateRoute(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateRoute(test.route, field.NewPath("route"), test.upstreamNames, test.isRouteFieldForbidden)
+		allErrs := vsv.validateRoute(test.route, field.NewPath("route"), test.upstreamNames, test.isRouteFieldForbidden, "default")
 		if len(allErrs) > 0 {
 			t.Errorf("validateRoute() returned errors %v for valid input for the case of %s", allErrs, test.msg)
 		}
@@ -806,8 +927,10 @@ func TestValidateRouteFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateRoute(test.route, field.NewPath("route"), test.upstreamNames, test.isRouteFieldForbidden)
+		allErrs := vsv.validateRoute(test.route, field.NewPath("route"), test.upstreamNames, test.isRouteFieldForbidden, "default")
 		if len(allErrs) == 0 {
 			t.Errorf("validateRoute() returned no errors for invalid input for the case of %s", test.msg)
 		}
@@ -843,13 +966,45 @@ func TestValidateAction(t *testing.T) {
 					Code: 302,
 				},
 			},
-
 			msg: "redirect action with status code set",
+		},
+		{
+			action: &v1.Action{
+				Proxy: &v1.ActionProxy{
+					Upstream:    "test",
+					RewritePath: "/rewrite",
+					RequestHeaders: &v1.ProxyRequestHeaders{
+						Set: []v1.Header{
+							{
+								Name:  "Header-Name",
+								Value: "value",
+							},
+						},
+					},
+					ResponseHeaders: &v1.ProxyResponseHeaders{
+						Hide:   []string{"header-name"},
+						Pass:   []string{"header-name"},
+						Ignore: []string{"Expires"},
+						Add: []v1.AddHeader{
+							{
+								Header: v1.Header{
+									Name:  "Header-Name",
+									Value: "value",
+								},
+								Always: true,
+							},
+						},
+					},
+				},
+			},
+			msg: "proxy action with rewritePath, requestHeaders and responseHeaders",
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateAction(test.action, field.NewPath("action"), upstreamNames)
+		allErrs := vsv.validateAction(test.action, field.NewPath("action"), upstreamNames, "", false)
 		if len(allErrs) > 0 {
 			t.Errorf("validateAction() returned errors %v for valid input for the case of %s", allErrs, test.msg)
 		}
@@ -892,10 +1047,20 @@ func TestValidateActionFails(t *testing.T) {
 			},
 			msg: "redirect action with invalid status code set",
 		},
+		{
+			action: &v1.Action{
+				Proxy: &v1.ActionProxy{
+					Upstream: "",
+				},
+			},
+			msg: "proxy action with missing upstream field",
+		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateAction(test.action, field.NewPath("action"), upstreamNames)
+		allErrs := vsv.validateAction(test.action, field.NewPath("action"), upstreamNames, "", false)
 		if len(allErrs) == 0 {
 			t.Errorf("validateAction() returned no errors for invalid input for the case of %s", test.msg)
 		}
@@ -967,8 +1132,10 @@ func TestValidateRedirectURL(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateRedirectURL(test.redirectURL, field.NewPath("url"), validRedirectVariableNames)
+		allErrs := vsv.validateRedirectURL(test.redirectURL, field.NewPath("url"), validRedirectVariableNames)
 		if len(allErrs) > 0 {
 			t.Errorf("validateRedirectURL(%s) returned errors %v for valid input for the case of %s", test.redirectURL, allErrs, test.msg)
 		}
@@ -1035,8 +1202,10 @@ func TestValidateRedirectURLFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateRedirectURL(test.redirectURL, field.NewPath("action"), validRedirectVariableNames)
+		allErrs := vsv.validateRedirectURL(test.redirectURL, field.NewPath("action"), validRedirectVariableNames)
 		if len(allErrs) == 0 {
 			t.Errorf("validateRedirectURL(%s) returned no errors for invalid input for the case of %s", test.redirectURL, test.msg)
 		}
@@ -1241,7 +1410,9 @@ func TestValidateSplits(t *testing.T) {
 		{
 			Weight: 10,
 			Action: &v1.Action{
-				Pass: "test-2",
+				Proxy: &v1.ActionProxy{
+					Upstream: "test-2",
+				},
 			},
 		},
 	}
@@ -1250,7 +1421,9 @@ func TestValidateSplits(t *testing.T) {
 		"test-2": {},
 	}
 
-	allErrs := validateSplits(splits, field.NewPath("splits"), upstreamNames)
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	allErrs := vsv.validateSplits(splits, field.NewPath("splits"), upstreamNames, "")
 	if len(allErrs) > 0 {
 		t.Errorf("validateSplits() returned errors %v for valid input", allErrs)
 	}
@@ -1362,8 +1535,10 @@ func TestValidateSplitsFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateSplits(test.splits, field.NewPath("splits"), test.upstreamNames)
+		allErrs := vsv.validateSplits(test.splits, field.NewPath("splits"), test.upstreamNames, "")
 		if len(allErrs) == 0 {
 			t.Errorf("validateSplits() returned no errors for invalid input for the case of %s", test.msg)
 		}
@@ -1599,8 +1774,10 @@ func TestValidateMatch(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateMatch(test.match, field.NewPath("match"), test.upstreamNames)
+		allErrs := vsv.validateMatch(test.match, field.NewPath("match"), test.upstreamNames, "")
 		if len(allErrs) > 0 {
 			t.Errorf("validateMatch() returned errors %v for valid input for the case of %s", allErrs, test.msg)
 		}
@@ -1689,8 +1866,10 @@ func TestValidateMatchFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateMatch(test.match, field.NewPath("match"), test.upstreamNames)
+		allErrs := vsv.validateMatch(test.match, field.NewPath("match"), test.upstreamNames, "")
 		if len(allErrs) == 0 {
 			t.Errorf("validateMatch() returned no errors for invalid input for the case of %s", test.msg)
 		}
@@ -1765,8 +1944,10 @@ func TestValidateVirtualServerRoute(t *testing.T) {
 			},
 		},
 	}
-	isPlus := false
-	err := ValidateVirtualServerRoute(&virtualServerRoute, isPlus)
+
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	err := vsv.ValidateVirtualServerRoute(&virtualServerRoute)
 	if err != nil {
 		t.Errorf("ValidateVirtualServerRoute() returned error %v for valid input %v", err, virtualServerRoute)
 	}
@@ -1811,8 +1992,9 @@ func TestValidateVirtualServerRouteForVirtualServer(t *testing.T) {
 	virtualServerHost := "example.com"
 	pathPrefix := "/test"
 
-	isPlus := false
-	err := ValidateVirtualServerRouteForVirtualServer(&virtualServerRoute, virtualServerHost, pathPrefix, isPlus)
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	err := vsv.ValidateVirtualServerRouteForVirtualServer(&virtualServerRoute, virtualServerHost, pathPrefix)
 	if err != nil {
 		t.Errorf("ValidateVirtualServerRouteForVirtualServer() returned error %v for valid input %v", err, virtualServerRoute)
 	}
@@ -1866,8 +2048,11 @@ func TestValidateVirtualServerRouteSubroutes(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateVirtualServerRouteSubroutes(test.routes, field.NewPath("subroutes"), test.upstreamNames, test.pathPrefix)
+		allErrs := vsv.validateVirtualServerRouteSubroutes(test.routes, field.NewPath("subroutes"), test.upstreamNames,
+			test.pathPrefix, "default")
 		if len(allErrs) > 0 {
 			t.Errorf("validateVirtualServerRouteSubroutes() returned errors %v for valid input for the case of %s", allErrs, test.msg)
 		}
@@ -1931,8 +2116,11 @@ func TestValidateVirtualServerRouteSubroutesFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateVirtualServerRouteSubroutes(test.routes, field.NewPath("subroutes"), test.upstreamNames, test.pathPrefix)
+		allErrs := vsv.validateVirtualServerRouteSubroutes(test.routes, field.NewPath("subroutes"), test.upstreamNames,
+			test.pathPrefix, "default")
 		if len(allErrs) == 0 {
 			t.Errorf("validateVirtualServerRouteSubroutes() returned no errors for the case of %s", test.msg)
 		}
@@ -1993,10 +2181,6 @@ func TestValidateUpstreamLBMethodFails(t *testing.T) {
 			t.Errorf("validateUpstreamLBMethod(%q, %v) returned no errors for method %s", test.method, test.isPlus, test.method)
 		}
 	}
-}
-
-func createPointerFromInt(n int) *int {
-	return &n
 }
 
 func TestValidatePositiveIntOrZeroFromPointer(t *testing.T) {
@@ -2121,24 +2305,6 @@ func TestValidateBuffer(t *testing.T) {
 		allErrs = validateBuffer(test, field.NewPath("buffers-field"))
 		if len(allErrs) == 0 {
 			t.Errorf("validateBuffer didn't return error for invalid input %v.", test)
-		}
-	}
-}
-
-func TestValidateSize(t *testing.T) {
-	var validInput = []string{"", "4k", "8K", "16m", "32M"}
-	for _, test := range validInput {
-		allErrs := validateSize(test, field.NewPath("size-field"))
-		if len(allErrs) != 0 {
-			t.Errorf("validateSize(%q) returned an error for valid input", test)
-		}
-	}
-
-	var invalidInput = []string{"55mm", "2mG", "6kb", "-5k", "1L", "5G"}
-	for _, test := range invalidInput {
-		allErrs := validateSize(test, field.NewPath("size-field"))
-		if len(allErrs) == 0 {
-			t.Errorf("validateSize(%q) didn't return error for invalid input.", test)
 		}
 	}
 }
@@ -2582,53 +2748,6 @@ func TestValidateRedirectStatusCodeFails(t *testing.T) {
 	}
 }
 
-func TestValidateVariable(t *testing.T) {
-	var validVars = map[string]bool{
-		"scheme":                 true,
-		"http_x_forwarded_proto": true,
-		"request_uri":            true,
-		"host":                   true,
-	}
-
-	tests := []struct {
-		nVar string
-	}{
-		{"scheme"},
-		{"http_x_forwarded_proto"},
-		{"request_uri"},
-		{"host"},
-	}
-	for _, test := range tests {
-		allErrs := validateVariable(test.nVar, validVars, field.NewPath("url"))
-		if len(allErrs) != 0 {
-			t.Errorf("validateVariable(%v) returned errors %v for valid input", test.nVar, allErrs)
-		}
-	}
-}
-
-func TestValidateVariableFails(t *testing.T) {
-	var validVars = map[string]bool{
-		"host": true,
-	}
-
-	tests := []struct {
-		nVar string
-	}{
-		{""},
-		{"hostinvalid.com"},
-		{"$a"},
-		{"host${host}"},
-		{"host${host}}"},
-		{"host$${host}"},
-	}
-	for _, test := range tests {
-		allErrs := validateVariable(test.nVar, validVars, field.NewPath("url"))
-		if len(allErrs) == 0 {
-			t.Errorf("validateVariable(%v) returned no errors for invalid input", test.nVar)
-		}
-	}
-}
-
 func TestIsRegexOrExactMatch(t *testing.T) {
 	tests := []struct {
 		path     string
@@ -2656,33 +2775,35 @@ func TestIsRegexOrExactMatch(t *testing.T) {
 	}
 }
 
-func TestValidateActionReturnBody(t *testing.T) {
+func TestValidateEscapedStringWithVariables(t *testing.T) {
+	specialVariables := []string{"http_"}
+	variables := map[string]bool{
+		"request_uri": true,
+		"host":        true,
+	}
+
 	tests := []struct {
-		body string
-		msg  string
+		str string
+		msg string
 	}{
 		{
-			body: "Hello World",
-			msg:  "single string",
+			str: "Hello World",
+			msg: "single string",
 		},
 		{
-			body: "${host}${request_uri}",
-			msg:  "string with variables",
+			str: "${host}${request_uri}",
+			msg: "string with variables",
 		},
 		{
-			body: "Could not complete request, please go to ${scheme}://www.${host}${request_uri}-2",
-			msg:  "string with url and variables",
+			str: "{abc} %&*()!@#",
+			msg: "string with symbols",
 		},
 		{
-			body: "{abc} %&*()!@#",
-			msg:  "string with symbols",
+			str: "${http_authorization}",
+			msg: "special variable with name",
 		},
 		{
-			body: "${http_authorization}",
-			msg:  "special variable with name",
-		},
-		{
-			body: `
+			str: `
 				<html>
 				<body>
 				<h1>Hello</h1>
@@ -2692,37 +2813,55 @@ func TestValidateActionReturnBody(t *testing.T) {
 		},
 	}
 
+	isPlus := false
+
 	for _, test := range tests {
-		allErrs := validateActionReturnBody(test.body, field.NewPath("body"), returnBodySpecialVariables, returnBodyVariables)
+		allErrs := validateEscapedStringWithVariables(test.str, field.NewPath("body"), specialVariables, variables, isPlus)
 		if len(allErrs) != 0 {
-			t.Errorf("validateActionReturnBody(%v) returned errors %v for valid input for the case of: %v", test.body, allErrs, test.msg)
+			t.Errorf("validateEscapedStringWithVariables(%v) returned errors %v for valid input for the case of: %v", test.str, allErrs, test.msg)
 		}
 	}
 }
 
-func TestValidateActionReturnBodyFails(t *testing.T) {
+func TestValidateEscapedStringWithVariablesFails(t *testing.T) {
+	specialVariables := []string{"http_"}
+	variables := map[string]bool{
+		"request_uri": true,
+		"host":        true,
+	}
+
 	tests := []struct {
-		body string
-		msg  string
+		str string
+		msg string
 	}{
 		{
-			body: "Request to $host",
-			msg:  "invalid variable format",
+			str: "Request to $host",
+			msg: "invalid variable format",
 		},
 		{
-			body: `Request to host failed "`,
-			msg:  "unescaped double quotes",
+			str: "Request to ${host_uri}",
+			msg: "invalid variable",
 		},
 		{
-			body: "Please access to ${something}.com",
-			msg:  "invalid variable",
+			str: "Request to ${https_authorization}",
+			msg: "invalid special variable",
+		},
+		{
+			str: `Request to host failed "`,
+			msg: "unescaped double quotes",
+		},
+		{
+			str: "Please access to ${something}.com",
+			msg: "invalid variable",
 		},
 	}
 
+	isPlus := false
+
 	for _, test := range tests {
-		allErrs := validateActionReturnBody(test.body, field.NewPath("body"), returnBodySpecialVariables, returnBodyVariables)
+		allErrs := validateEscapedStringWithVariables(test.str, field.NewPath("string"), specialVariables, variables, isPlus)
 		if len(allErrs) == 0 {
-			t.Errorf("validateActionReturnBody(%v) returned no errors for invalid input for the case of: %v", test.body, test.msg)
+			t.Errorf("validateEscapedStringWithVariables(%v) returned no errors for invalid input for the case of: %v", test.str, test.msg)
 		}
 	}
 }
@@ -2783,6 +2922,12 @@ func TestValidateActionReturn(t *testing.T) {
 			Body: "Hello World",
 		},
 		{
+			Body: "The URI is ${request_uri}",
+		},
+		{
+			Body: "The header abc is ${http_abc}",
+		},
+		{
 			Type: "application/json",
 			Body: "Hello World",
 		},
@@ -2793,8 +2938,10 @@ func TestValidateActionReturn(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateActionReturn(test, field.NewPath("return"), returnBodySpecialVariables, returnBodyVariables)
+		allErrs := vsv.validateActionReturn(test, field.NewPath("return"), returnBodySpecialVariables, returnBodyVariables)
 		if len(allErrs) != 0 {
 			t.Errorf("validateActionReturn(%v) returned errors for valid input", test)
 		}
@@ -2804,6 +2951,12 @@ func TestValidateActionReturn(t *testing.T) {
 func TestValidateActionReturnFails(t *testing.T) {
 	tests := []*v1.ActionReturn{
 		{},
+		{
+			Body: "Hello ${somevar}",
+		},
+		{
+			Body: "Hello ${http_%}",
+		},
 		{
 			Code: 301,
 			Body: "Hello World",
@@ -2815,73 +2968,477 @@ func TestValidateActionReturnFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateActionReturn(test, field.NewPath("return"), returnBodySpecialVariables, returnBodyVariables)
+		allErrs := vsv.validateActionReturn(test, field.NewPath("return"), returnBodySpecialVariables, returnBodyVariables)
 		if len(allErrs) == 0 {
 			t.Errorf("validateActionReturn(%v) returned no errors for invalid input", test)
 		}
 	}
 }
 
-func TestValidateStringWithVariables(t *testing.T) {
-	testStrings := []string{
-		"",
-		"${scheme}",
-		"${scheme}${host}",
-		"foo.bar",
+func TestValidateActionProxy(t *testing.T) {
+	upstreamNames := map[string]sets.Empty{
+		"upstream1": {},
 	}
-	validVars := map[string]bool{"scheme": true, "host": true}
+	path := "/path"
+	actionProxy := &v1.ActionProxy{
+		Upstream:    "upstream1",
+		RewritePath: "/test",
+	}
 
-	for _, test := range testStrings {
-		allErrs := validateStringWithVariables(test, field.NewPath("string"), nil, validVars)
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	allErrs := vsv.validateActionProxy(actionProxy, field.NewPath("proxy"), upstreamNames, path, false)
+
+	if len(allErrs) != 0 {
+		t.Errorf("validateActionProxy(%+v, %v, %v) returned errors for valid input: %v", actionProxy, upstreamNames, path, allErrs)
+	}
+}
+
+func TestValidateActionProxyFails(t *testing.T) {
+	upstreamNames := map[string]sets.Empty{
+		"upstream1": {},
+	}
+	path := "/path"
+	actionProxy := &v1.ActionProxy{
+		Upstream: "",
+	}
+
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	allErrs := vsv.validateActionProxy(actionProxy, field.NewPath("proxy"), upstreamNames, path, false)
+
+	if len(allErrs) == 0 {
+		t.Errorf("validateActionProxy(%+v, %v, %v) returned no errors for invalid input", actionProxy, upstreamNames, path)
+	}
+}
+
+func TestValidateActionProxyRewritePath(t *testing.T) {
+	tests := []string{"/rewrite", "/rewrite", `/$2`}
+	for _, test := range tests {
+		allErrs := validateActionProxyRewritePath(test, field.NewPath("rewritePath"))
 		if len(allErrs) != 0 {
-			t.Errorf("validateStringWithVariables(%v) returned errors for valid input: %v", test, allErrs)
-		}
-	}
-
-	specialVars := []string{"arg", "http", "cookie"}
-	testStringsSpecial := []string{
-		"${arg_username}",
-		"${http_header_name}",
-		"${cookie_cookie_name}",
-	}
-
-	for _, test := range testStringsSpecial {
-		allErrs := validateStringWithVariables(test, field.NewPath("string"), specialVars, validVars)
-		if len(allErrs) != 0 {
-			t.Errorf("validateStringWithVariables(%v) returned errors for valid input: %v", test, allErrs)
+			t.Errorf("validateActionProxyRewritePath(%v) returned errors for valid input: %v", test, allErrs)
 		}
 	}
 }
 
-func TestValidateStringWithVariablesFail(t *testing.T) {
-	testStrings := []string{
-		"$scheme}",
-		"${sch${eme}${host}",
-		"host$",
-		"${host",
-		"${invalid}",
-	}
-	validVars := map[string]bool{"scheme": true, "host": true}
-
-	for _, test := range testStrings {
-		allErrs := validateStringWithVariables(test, field.NewPath("string"), nil, validVars)
+func TestValidateActionProxyRewritePathFails(t *testing.T) {
+	tests := []string{`/\d{3}`, `(`, "$request_uri"}
+	for _, test := range tests {
+		allErrs := validateActionProxyRewritePath(test, field.NewPath("rewritePath"))
 		if len(allErrs) == 0 {
-			t.Errorf("validateStringWithVariables(%v) returned no errors for invalid input", test)
+			t.Errorf("validateActionProxyRewritePath(%v) returned no errors for invalid input", test)
 		}
 	}
+}
 
-	specialVars := []string{"arg", "http", "cookie"}
-	testStringsSpecial := []string{
-		"${arg_username%}",
-		"${http_header-name}",
-		"${cookie_cookie?name}",
+func TestValidateActionProxyRewritePathForRegexp(t *testing.T) {
+	tests := []string{"/rewrite$1", "test", `/$2`, `\"test\"`}
+	for _, test := range tests {
+		allErrs := validateActionProxyRewritePathForRegexp(test, field.NewPath("rewritePath"))
+		if len(allErrs) != 0 {
+			t.Errorf("validateActionProxyRewritePathForRegexp(%v) returned errors for valid input: %v", test, allErrs)
+		}
+	}
+}
+
+func TestValidateActionProxyRewritePathForRegexpFails(t *testing.T) {
+	tests := []string{"$request_uri", `"test"`, `test\`}
+	for _, test := range tests {
+		allErrs := validateActionProxyRewritePathForRegexp(test, field.NewPath("rewritePath"))
+		if len(allErrs) == 0 {
+			t.Errorf("validateActionProxyRewritePathForRegexp(%v) returned no errors for invalid input", test)
+		}
+	}
+}
+
+func TestValidateActionProxyHeader(t *testing.T) {
+	tests := []struct {
+		header v1.Header
+	}{
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: "my.service",
+			},
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: `\"my.service\"`,
+			},
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: "${request_uri}",
+			},
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: "${http_some_header}",
+			},
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: "${request_uri} and ${http_some_header}",
+			},
+		},
 	}
 
-	for _, test := range testStringsSpecial {
-		allErrs := validateStringWithVariables(test, field.NewPath("string"), specialVars, validVars)
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	for _, test := range tests {
+		allErrs := vsv.validateActionProxyHeader(test.header, field.NewPath("headers"))
+
+		if len(allErrs) != 0 {
+			t.Errorf("validateActionProxyHeader() returned errors %v for valid input %v", allErrs, test.header)
+		}
+	}
+}
+
+func TestValidateActionProxyHeaderFails(t *testing.T) {
+	tests := []struct {
+		header v1.Header
+		msg    string
+	}{
+		{
+			header: v1.Header{
+				Name:  "12378 qwe ",
+				Value: "my.service",
+			},
+			msg: "Invalid name with spaces",
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: `"my.service`,
+			},
+			msg: `Invalid value with unescaped '"'`,
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: `my.service\`,
+			},
+			msg: "Invalid value with ending '\\'",
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: "${realpath_root}",
+			},
+			msg: "Invalid variable",
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: "${sent_http_name}",
+			},
+			msg: "Invalid special variable",
+		},
+		{
+			header: v1.Header{
+				Name:  "Host",
+				Value: "my.\\$service",
+			},
+			msg: "Invalid value with escaped '$' character",
+		},
+	}
+
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	for _, test := range tests {
+		allErrs := vsv.validateActionProxyHeader(test.header, field.NewPath("headers"))
+
 		if len(allErrs) == 0 {
-			t.Errorf("validateStringWithVariables(%v) returned no errors for invalid input", test)
+			t.Errorf("validateActionProxyHeader() returned no errors for case: %v", test.msg)
+		}
+	}
+}
+
+func TestValidateActionProxyRequestHeaders(t *testing.T) {
+	requestHeaders := &v1.ProxyRequestHeaders{
+		Set: []v1.Header{
+			{
+				Name:  "Host",
+				Value: "nginx.org",
+			},
+			{
+				Name:  "scheme",
+				Value: "${scheme}",
+			},
+			{
+				Name:  "user",
+				Value: "${http_user}",
+			},
+		},
+	}
+
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	allErrs := vsv.validateActionProxyRequestHeaders(requestHeaders, field.NewPath("requestHeaders"))
+	if len(allErrs) != 0 {
+		t.Errorf("validateActionProxyRequestHeaders(%v) returned errors for valid input: %v", requestHeaders, allErrs)
+	}
+}
+
+func TestValidateActionProxyRequestHeadersFails(t *testing.T) {
+	invalidHeaders := []*v1.ProxyRequestHeaders{
+		{
+			Set: []v1.Header{
+				{
+					Name:  "in va lid",
+					Value: "",
+				},
+			},
+		},
+		{
+			Set: []v1.Header{
+				{
+					Name:  "Host",
+					Value: "$var",
+				},
+			},
+		},
+		{
+			Set: []v1.Header{
+				{
+					Name:  "",
+					Value: "nginx.org",
+				},
+			},
+		},
+		{
+			Set: []v1.Header{
+				{
+					Name:  "Host",
+					Value: "${http_%}",
+				},
+			},
+		},
+	}
+
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	for _, headers := range invalidHeaders {
+		allErrs := vsv.validateActionProxyRequestHeaders(headers, field.NewPath("requestHeaders"))
+		if len(allErrs) == 0 {
+			t.Errorf("validateActionProxyRequestHeaders(%v) returned no errors for invalid input", headers)
+		}
+	}
+}
+
+func TestValidateActionProxyResponseHeaders(t *testing.T) {
+	tests := []struct {
+		responseHeaders *v1.ProxyResponseHeaders
+	}{
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Hide:   []string{"Header"},
+				Pass:   []string{"Header"},
+				Ignore: []string{"Expires"},
+				Add: []v1.AddHeader{
+					{
+						Header: v1.Header{
+							Name:  "Host",
+							Value: "nginx.org",
+						},
+						Always: false,
+					},
+				},
+			},
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Hide: []string{"Header"},
+			},
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Pass: []string{"Header"},
+			},
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Ignore: []string{"Expires"},
+			},
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Add: []v1.AddHeader{
+					{
+						Header: v1.Header{
+							Name:  "Host",
+							Value: "nginx.org",
+						},
+						Always: false,
+					},
+					{
+						Header: v1.Header{
+							Name:  "uri",
+							Value: "${request_uri}",
+						},
+					},
+					{
+						Header: v1.Header{
+							Name:  "abc",
+							Value: "${http_abc}",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	for _, test := range tests {
+		allErrs := vsv.validateActionProxyResponseHeaders(test.responseHeaders, field.NewPath("responseHeaders"))
+		if len(allErrs) != 0 {
+			t.Errorf("validateActionProxyResponseHeaders(%v) returned errors for valid input: %v", test.responseHeaders, allErrs)
+		}
+	}
+}
+
+func TestValidateActionProxyResponseHeadersFails(t *testing.T) {
+	tests := []struct {
+		responseHeaders *v1.ProxyResponseHeaders
+		msg             string
+	}{
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Hide:   []string{""},
+				Pass:   []string{""},
+				Ignore: []string{""},
+				Add: []v1.AddHeader{
+					{
+						Header: v1.Header{
+							Name:  "",
+							Value: "nginx.org",
+						},
+					},
+				},
+			},
+			msg: "all fields invalid",
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Hide: []string{"invalid header"},
+			},
+			msg: "invalid hide headers",
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Pass: []string{"$invalid"},
+			},
+			msg: "invalid pass headers",
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Ignore: []string{"1234 invalid"},
+			},
+			msg: "invalid ignore headers",
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Add: []v1.AddHeader{
+					{
+						Header: v1.Header{
+							Name:  "$invalid 123",
+							Value: "nginx.org",
+						},
+						Always: false,
+					},
+				},
+			},
+			msg: "invalid Add header name",
+		},
+		{
+			responseHeaders: &v1.ProxyResponseHeaders{
+				Add: []v1.AddHeader{
+					{
+						Header: v1.Header{
+							Name:  "Host",
+							Value: "${invalid}",
+						},
+						Always: false,
+					},
+				},
+			},
+			msg: "invalid Add header value",
+		},
+	}
+
+	vsv := &VirtualServerValidator{isPlus: false}
+
+	for _, test := range tests {
+		allErrs := vsv.validateActionProxyResponseHeaders(test.responseHeaders, field.NewPath("responseHeaders"))
+		if len(allErrs) == 0 {
+			t.Errorf("validateActionProxyResponseHeaders(%v) returned no errors for invalid input for the case of %v", test.responseHeaders, test.msg)
+		}
+	}
+}
+
+func TestValidateIgnoreHeaders(t *testing.T) {
+	var ignoreHeaders []string
+
+	for header := range validIgnoreHeaders {
+		ignoreHeaders = append(ignoreHeaders, header)
+	}
+
+	allErrs := validateIgnoreHeaders(ignoreHeaders, field.NewPath("ignoreHeaders"))
+	if len(allErrs) != 0 {
+		t.Errorf("validateIgnoreHeaders(%v) returned errors for valid input: %v", ignoreHeaders, allErrs)
+	}
+}
+
+func TestValidateIgnoreHeadersFails(t *testing.T) {
+	ignoreHeaders := []string{
+		"Host",
+		"Connection",
+	}
+
+	allErrs := validateIgnoreHeaders(ignoreHeaders, field.NewPath("ignoreHeaders"))
+	if len(allErrs) == 0 {
+		t.Errorf("validateIgnoreHeaders(%v) returned no errors for invalid input", ignoreHeaders)
+	}
+}
+
+func TestValidateStringNoVariables(t *testing.T) {
+	tests := []string{
+		"string",
+		"endWith$",
+		"withNumber$1",
+		"abcййй",
+		"abcййй$1",
+		"",
+	}
+
+	for _, test := range tests {
+		allErrs := validateStringNoVariables(test, field.NewPath("rewritePath"))
+		if len(allErrs) != 0 {
+			t.Errorf("validateStringNoVariables(%v) returned errors for valid input: %v", test, allErrs)
+		}
+	}
+}
+
+func TestValidateStringNoVariablesFails(t *testing.T) {
+	tests := []string{
+		"$var",
+		"abcйй$й",
+		"$$",
+	}
+
+	for _, test := range tests {
+		allErrs := validateStringNoVariables(test, field.NewPath("rewritePath"))
+		if len(allErrs) == 0 {
+			t.Errorf("validateStringNoVariables(%v) returned no errors for invalid input", test)
 		}
 	}
 }
@@ -2902,26 +3459,6 @@ func TestValidateActionReturnCodeFails(t *testing.T) {
 		allErrs := validateActionReturnCode(c, field.NewPath("code"))
 		if len(allErrs) == 0 {
 			t.Errorf("validateActionReturnCode(%v) returned no errors for invalid input", c)
-		}
-	}
-}
-
-func TestValidateSpecialVariable(t *testing.T) {
-	specialVars := []string{"arg_username", "arg_user_name", "http_header_name", "cookie_cookie_name"}
-	for _, v := range specialVars {
-		allErrs := validateSpecialVariable(v, field.NewPath("variable"))
-		if len(allErrs) != 0 {
-			t.Errorf("validateSpecialVariable(%v) returned errors for valid case: %v", v, allErrs)
-		}
-	}
-}
-
-func TestValidateSpecialVariableFails(t *testing.T) {
-	specialVars := []string{"arg_invalid%", "http_header+invalid", "cookie_cookie_name?invalid"}
-	for _, v := range specialVars {
-		allErrs := validateSpecialVariable(v, field.NewPath("variable"))
-		if len(allErrs) == 0 {
-			t.Errorf("validateSpecialVariable(%v) returned no errors for invalid case", v)
 		}
 	}
 }
@@ -2995,8 +3532,10 @@ func TestValidateErrorPage(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, ep := range tests {
-		allErrs := validateErrorPage(ep, field.NewPath("errorPage"))
+		allErrs := vsv.validateErrorPage(ep, field.NewPath("errorPage"))
 		if len(allErrs) != 0 {
 			t.Errorf("validateErrorPage(%v) returned errors for valid input: %v", ep, allErrs)
 		}
@@ -3023,8 +3562,10 @@ func TestValidateErrorPageFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, ep := range tests {
-		allErrs := validateErrorPage(ep, field.NewPath("errorPage"))
+		allErrs := vsv.validateErrorPage(ep, field.NewPath("errorPage"))
 		if len(allErrs) == 0 {
 			t.Errorf("validateErrorPage(%v) returned no errors for invalid input", ep)
 		}
@@ -3064,8 +3605,10 @@ func TestValidateErrorPageReturn(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, epr := range tests {
-		allErrs := validateErrorPageReturn(&epr, field.NewPath("return"))
+		allErrs := vsv.validateErrorPageReturn(&epr, field.NewPath("return"))
 		if len(allErrs) != 0 {
 			t.Errorf("validateErrorPageReturn(%v) returned errors for valid input: %v", epr, allErrs)
 		}
@@ -3125,8 +3668,10 @@ func TestValidateErrorPageReturnFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateErrorPageReturn(&test.epr, field.NewPath("return"))
+		allErrs := vsv.validateErrorPageReturn(&test.epr, field.NewPath("return"))
 		if len(allErrs) == 0 {
 			t.Errorf("validateErrorPageReturn(%v) returned no errors for invalid input for the case of %v", test.epr, test.msg)
 		}
@@ -3149,8 +3694,10 @@ func TestValidateErrorPageRedirect(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, epr := range tests {
-		allErrs := validateErrorPageRedirect(&epr, field.NewPath("redirect"))
+		allErrs := vsv.validateErrorPageRedirect(&epr, field.NewPath("redirect"))
 		if len(allErrs) != 0 {
 			t.Errorf("validateErrorPageRedirect(%v) returned errors for valid input: %v", epr, allErrs)
 		}
@@ -3191,8 +3738,10 @@ func TestValidateErrorPageRedirectFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, epr := range tests {
-		allErrs := validateErrorPageRedirect(&epr, field.NewPath("redirect"))
+		allErrs := vsv.validateErrorPageRedirect(&epr, field.NewPath("redirect"))
 		if len(allErrs) == 0 {
 			t.Errorf("validateErrorPageRedirect(%v) returned no errors for invalid input", epr)
 		}
@@ -3215,8 +3764,10 @@ func TestValidateErrorPageHeader(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateErrorPageHeader(test, field.NewPath("header"))
+		allErrs := vsv.validateErrorPageHeader(test, field.NewPath("header"))
 		if len(allErrs) != 0 {
 			t.Errorf("validateErrorPageHeader(%v) returned errors for valid input", test)
 		}
@@ -3246,8 +3797,10 @@ func TestValidateErrorPageHeaderFails(t *testing.T) {
 		},
 	}
 
+	vsv := &VirtualServerValidator{isPlus: false}
+
 	for _, test := range tests {
-		allErrs := validateErrorPageHeader(test, field.NewPath("header"))
+		allErrs := vsv.validateErrorPageHeader(test, field.NewPath("header"))
 		if len(allErrs) == 0 {
 			t.Errorf("validateErrorPageHeader(%v) returned no errors for invalid input", test)
 		}

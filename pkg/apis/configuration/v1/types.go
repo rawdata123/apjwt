@@ -4,6 +4,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	// StateWarning is used when the resource has been validated and accepted but it might work in a degraded state.
+	StateWarning = "Warning"
+	// StateValid is used when the resource has been validated and accepted and is working as expected.
+	StateValid = "Valid"
+	// StateInvalid is used when the resource failed validation or NGINX failed to reload the corresponding config.
+	StateInvalid = "Invalid"
+)
+
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:validation:Optional
@@ -13,15 +22,26 @@ type VirtualServer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec VirtualServerSpec `json:"spec"`
+	Spec   VirtualServerSpec   `json:"spec"`
+	Status VirtualServerStatus `json:"status"`
 }
 
 // VirtualServerSpec is the spec of the VirtualServer resource.
 type VirtualServerSpec struct {
-	Host      string     `json:"host"`
-	TLS       *TLS       `json:"tls"`
-	Upstreams []Upstream `json:"upstreams"`
-	Routes    []Route    `json:"routes"`
+	IngressClass   string            `json:"ingressClassName"`
+	Host           string            `json:"host"`
+	TLS            *TLS              `json:"tls"`
+	Policies       []PolicyReference `json:"policies"`
+	Upstreams      []Upstream        `json:"upstreams"`
+	Routes         []Route           `json:"routes"`
+	HTTPSnippets   string            `json:"http-snippets"`
+	ServerSnippets string            `json:"server-snippets"`
+}
+
+// PolicyReference references a policy by name and an optional namespace.
+type PolicyReference struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
 
 // Upstream defines an upstream.
@@ -99,12 +119,14 @@ type SessionCookie struct {
 
 // Route defines a route.
 type Route struct {
-	Path       string      `json:"path"`
-	Route      string      `json:"route"`
-	Action     *Action     `json:"action"`
-	Splits     []Split     `json:"splits"`
-	Matches    []Match     `json:"matches"`
-	ErrorPages []ErrorPage `json:"errorPages"`
+	Path             string            `json:"path"`
+	Policies         []PolicyReference `json:"policies"`
+	Route            string            `json:"route"`
+	Action           *Action           `json:"action"`
+	Splits           []Split           `json:"splits"`
+	Matches          []Match           `json:"matches"`
+	ErrorPages       []ErrorPage       `json:"errorPages"`
+	LocationSnippets string            `json:"location-snippets"`
 }
 
 // Action defines an action.
@@ -112,6 +134,7 @@ type Action struct {
 	Pass     string          `json:"pass"`
 	Redirect *ActionRedirect `json:"redirect"`
 	Return   *ActionReturn   `json:"return"`
+	Proxy    *ActionProxy    `json:"proxy"`
 }
 
 // ActionRedirect defines a redirect in an Action.
@@ -125,6 +148,34 @@ type ActionReturn struct {
 	Code int    `json:"code"`
 	Type string `json:"type"`
 	Body string `json:"body"`
+}
+
+// ActionProxy defines a proxy in an Action.
+type ActionProxy struct {
+	Upstream        string                `json:"upstream"`
+	RewritePath     string                `json:"rewritePath"`
+	RequestHeaders  *ProxyRequestHeaders  `json:"requestHeaders"`
+	ResponseHeaders *ProxyResponseHeaders `json:"responseHeaders"`
+}
+
+// ProxyRequestHeaders defines the request headers manipulation in an ActionProxy.
+type ProxyRequestHeaders struct {
+	Pass *bool    `json:"pass"`
+	Set  []Header `json:"set"`
+}
+
+// ProxyRequestHeaders defines the response headers manipulation in an ActionProxy.
+type ProxyResponseHeaders struct {
+	Hide   []string    `json:"hide"`
+	Pass   []string    `json:"pass"`
+	Ignore []string    `json:"ignore"`
+	Add    []AddHeader `json:"add"`
+}
+
+// Header defines an HTTP Header with an optional Always field to use with the add_header NGINX directive.
+type AddHeader struct {
+	Header `json:",inline"`
+	Always bool `json:"always"`
 }
 
 // Split defines a split.
@@ -180,6 +231,20 @@ type TLSRedirect struct {
 	BasedOn string `json:"basedOn"`
 }
 
+// VirtualServerStatus defines the status for the VirtualServer resource.
+type VirtualServerStatus struct {
+	State             string             `json:"state"`
+	Reason            string             `json:"reason"`
+	Message           string             `json:"message"`
+	ExternalEndpoints []ExternalEndpoint `json:"externalEndpoints,omitempty"`
+}
+
+// ExternalEndpoint defines the IP and ports used to connect to this resource.
+type ExternalEndpoint struct {
+	IP    string `json:"ip"`
+	Ports string `json:"ports"`
+}
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // VirtualServerList is a list of the VirtualServer resources.
@@ -197,13 +262,15 @@ type VirtualServerRoute struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec VirtualServerRouteSpec `json:"spec"`
+	Spec   VirtualServerRouteSpec   `json:"spec"`
+	Status VirtualServerRouteStatus `json:"status"`
 }
 
 type VirtualServerRouteSpec struct {
-	Host      string     `json:"host"`
-	Upstreams []Upstream `json:"upstreams"`
-	Subroutes []Route    `json:"subroutes"`
+	IngressClass string     `json:"ingressClassName"`
+	Host         string     `json:"host"`
+	Upstreams    []Upstream `json:"upstreams"`
+	Subroutes    []Route    `json:"subroutes"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -219,4 +286,13 @@ type VirtualServerRouteList struct {
 type UpstreamQueue struct {
 	Size    int    `json:"size"`
 	Timeout string `json:"timeout"`
+}
+
+// VirtualServerRouteStatus defines the status for the VirtualServerRoute resource.
+type VirtualServerRouteStatus struct {
+	State             string             `json:"state"`
+	Reason            string             `json:"reason"`
+	Message           string             `json:"message"`
+	ReferencedBy      string             `json:"referencedBy"`
+	ExternalEndpoints []ExternalEndpoint `json:"externalEndpoints,omitempty"`
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/api/extensions/v1beta1"
+	"k8s.io/api/networking/v1beta1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -379,6 +379,40 @@ func TestParseTime(t *testing.T) {
 		result, err := ParseTime(test)
 		if err == nil {
 			t.Errorf("TestparseTime(%q) didn't return error. Returned: %q", test, result)
+		}
+	}
+}
+
+func TestVerifyThresholds(t *testing.T) {
+	validInput := []string{
+		"high=3 low=1",
+		"high=12 low=2",
+		"high=100 low=3",
+		"high=12 low=10",
+		"high=100 low=11",
+		"low=1 high=3",
+		"low=2 high=12",
+		"low=3 high=100",
+		"low=10 high=12",
+		"low=11 high=100",
+	}
+	invalidInput := []string{
+		"high=101 low=10",
+		"high=101 low=999",
+		"high=1 high=1",
+		"low=1 low=20",
+		"low=",
+		"high=12",
+		"a string",
+	}
+	for _, input := range validInput {
+		if !VerifyAppProtectThresholds(input) {
+			t.Errorf("VerifyAppProtectThresholds(%s) returned false,expected true", input)
+		}
+	}
+	for _, input := range invalidInput {
+		if VerifyAppProtectThresholds(input) {
+			t.Errorf("VerifyAppProtectThresholds(%s) returned true,expected false", input)
 		}
 	}
 }

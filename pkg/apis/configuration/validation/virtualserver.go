@@ -13,30 +13,36 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
-const (
-	escapedStringsFmt    = `([^"\\]|\\.)*`
-	escapedStringsErrMsg = `must have all '"' (double quotes) escaped and must not end with an unescaped '\' (backslash)`
-)
+// VirtualServerValidator validates a VirtualServer/VirtualServerRoute resource.
+type VirtualServerValidator struct {
+	isPlus bool
+}
 
-var escapedStringsFmtRegexp = regexp.MustCompile("^" + escapedStringsFmt + "$")
+// NewVirtualServerValidator creates a new VirtualServerValidator.
+func NewVirtualServerValidator(isPlus bool) *VirtualServerValidator {
+	return &VirtualServerValidator{
+		isPlus: isPlus,
+	}
+}
 
 // ValidateVirtualServer validates a VirtualServer.
-func ValidateVirtualServer(virtualServer *v1.VirtualServer, isPlus bool) error {
-	allErrs := validateVirtualServerSpec(&virtualServer.Spec, field.NewPath("spec"), isPlus)
+func (vsv *VirtualServerValidator) ValidateVirtualServer(virtualServer *v1.VirtualServer) error {
+	allErrs := vsv.validateVirtualServerSpec(&virtualServer.Spec, field.NewPath("spec"), virtualServer.Namespace)
 	return allErrs.ToAggregate()
 }
 
 // validateVirtualServerSpec validates a VirtualServerSpec.
-func validateVirtualServerSpec(spec *v1.VirtualServerSpec, fieldPath *field.Path, isPlus bool) field.ErrorList {
+func (vsv *VirtualServerValidator) validateVirtualServerSpec(spec *v1.VirtualServerSpec, fieldPath *field.Path, namespace string) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	allErrs = append(allErrs, validateHost(spec.Host, fieldPath.Child("host"))...)
 	allErrs = append(allErrs, validateTLS(spec.TLS, fieldPath.Child("tls"))...)
+	allErrs = append(allErrs, validatePolicies(spec.Policies, fieldPath.Child("policies"), namespace)...)
 
-	upstreamErrs, upstreamNames := validateUpstreams(spec.Upstreams, fieldPath.Child("upstreams"), isPlus)
+	upstreamErrs, upstreamNames := vsv.validateUpstreams(spec.Upstreams, fieldPath.Child("upstreams"))
 	allErrs = append(allErrs, upstreamErrs...)
 
-	allErrs = append(allErrs, validateVirtualServerRoutes(spec.Routes, fieldPath.Child("routes"), upstreamNames)...)
+	allErrs = append(allErrs, vsv.validateVirtualServerRoutes(spec.Routes, fieldPath.Child("routes"), upstreamNames, namespace)...)
 
 	return allErrs
 }
@@ -50,6 +56,44 @@ func validateHost(host string, fieldPath *field.Path) field.ErrorList {
 
 	for _, msg := range validation.IsDNS1123Subdomain(host) {
 		allErrs = append(allErrs, field.Invalid(fieldPath, host, msg))
+	}
+
+	return allErrs
+}
+
+func validatePolicies(policies []v1.PolicyReference, fieldPath *field.Path, namespace string) field.ErrorList {
+	allErrs := field.ErrorList{}
+	policyKeys := sets.String{}
+
+	for i, p := range policies {
+		idxPath := fieldPath.Index(i)
+
+		polNamespace := p.Namespace
+		if polNamespace == "" {
+			polNamespace = namespace
+		}
+
+		key := fmt.Sprintf("%s/%s", polNamespace, p.Name)
+
+		if policyKeys.Has(key) {
+			allErrs = append(allErrs, field.Duplicate(idxPath, key))
+		} else {
+			policyKeys.Insert(key)
+		}
+
+		if p.Name == "" {
+			allErrs = append(allErrs, field.Required(idxPath.Child("name"), ""))
+		} else {
+			for _, msg := range validation.IsDNS1123Subdomain(p.Name) {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("name"), p.Name, msg))
+			}
+		}
+
+		if p.Namespace != "" {
+			for _, msg := range validation.IsDNS1123Label(p.Namespace) {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("namespace"), p.Namespace, msg))
+			}
+		}
 	}
 
 	return allErrs
@@ -160,25 +204,6 @@ func validateOffset(offset string, fieldPath *field.Path) field.ErrorList {
 		return append(allErrs, field.Invalid(fieldPath, offset, msg))
 	}
 
-	return allErrs
-}
-
-const sizeFmt = `\d+[kKmM]?`
-const sizeErrMsg = "must consist of numeric characters followed by a valid size suffix. 'k|K|m|M"
-
-var sizeRegexp = regexp.MustCompile("^" + sizeFmt + "$")
-
-func validateSize(size string, fieldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-
-	if size == "" {
-		return allErrs
-	}
-
-	if !sizeRegexp.MatchString(size) {
-		msg := validation.RegexError(sizeErrMsg, sizeFmt, "16", "32k", "64M")
-		return append(allErrs, field.Invalid(fieldPath, size, msg))
-	}
 	return allErrs
 }
 
@@ -404,23 +429,7 @@ func isValidHeaderValue(s string) []string {
 	return nil
 }
 
-// validateSecretName checks if a secret name is valid.
-// It performs the same validation as ValidateSecretName from k8s.io/kubernetes/pkg/apis/core/validation/validation.go.
-func validateSecretName(name string, fieldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-
-	if name == "" {
-		return allErrs
-	}
-
-	for _, msg := range validation.IsDNS1123Subdomain(name) {
-		allErrs = append(allErrs, field.Invalid(fieldPath, name, msg))
-	}
-
-	return allErrs
-}
-
-func validateUpstreams(upstreams []v1.Upstream, fieldPath *field.Path, isPlus bool) (allErrs field.ErrorList, upstreamNames sets.String) {
+func (vsv *VirtualServerValidator) validateUpstreams(upstreams []v1.Upstream, fieldPath *field.Path) (allErrs field.ErrorList, upstreamNames sets.String) {
 	allErrs = field.ErrorList{}
 	upstreamNames = sets.String{}
 
@@ -444,7 +453,7 @@ func validateUpstreams(upstreams []v1.Upstream, fieldPath *field.Path, isPlus bo
 		allErrs = append(allErrs, validateNextUpstream(u.ProxyNextUpstream, idxPath.Child("next-upstream"))...)
 		allErrs = append(allErrs, validateTime(u.ProxyNextUpstreamTimeout, idxPath.Child("next-upstream-timeout"))...)
 		allErrs = append(allErrs, validatePositiveIntOrZeroFromPointer(&u.ProxyNextUpstreamTries, idxPath.Child("next-upstream-tries"))...)
-		allErrs = append(allErrs, validateUpstreamLBMethod(u.LBMethod, idxPath.Child("lb-method"), isPlus)...)
+		allErrs = append(allErrs, validateUpstreamLBMethod(u.LBMethod, idxPath.Child("lb-method"), vsv.isPlus)...)
 		allErrs = append(allErrs, validateTime(u.FailTimeout, idxPath.Child("fail-timeout"))...)
 		allErrs = append(allErrs, validatePositiveIntOrZeroFromPointer(u.MaxFails, idxPath.Child("max-fails"))...)
 		allErrs = append(allErrs, validatePositiveIntOrZeroFromPointer(u.Keepalive, idxPath.Child("keepalive"))...)
@@ -461,7 +470,7 @@ func validateUpstreams(upstreams []v1.Upstream, fieldPath *field.Path, isPlus bo
 			allErrs = append(allErrs, field.Invalid(idxPath.Child("port"), u.Port, msg))
 		}
 
-		allErrs = append(allErrs, rejectPlusResourcesInOSS(u, idxPath, isPlus)...)
+		allErrs = append(allErrs, rejectPlusResourcesInOSS(u, idxPath, vsv.isPlus)...)
 	}
 
 	return allErrs, upstreamNames
@@ -532,7 +541,7 @@ func validateDNS1035Label(name string, fieldPath *field.Path) field.ErrorList {
 	return allErrs
 }
 
-func validateVirtualServerRoutes(routes []v1.Route, fieldPath *field.Path, upstreamNames sets.String) field.ErrorList {
+func (vsv *VirtualServerValidator) validateVirtualServerRoutes(routes []v1.Route, fieldPath *field.Path, upstreamNames sets.String, namespace string) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	allPaths := sets.String{}
@@ -541,7 +550,7 @@ func validateVirtualServerRoutes(routes []v1.Route, fieldPath *field.Path, upstr
 		idxPath := fieldPath.Index(i)
 
 		isRouteFieldForbidden := false
-		routeErrs := validateRoute(r, idxPath, upstreamNames, isRouteFieldForbidden)
+		routeErrs := vsv.validateRoute(r, idxPath, upstreamNames, isRouteFieldForbidden, namespace)
 		if len(routeErrs) > 0 {
 			allErrs = append(allErrs, routeErrs...)
 		} else if allPaths.Has(r.Path) {
@@ -554,32 +563,33 @@ func validateVirtualServerRoutes(routes []v1.Route, fieldPath *field.Path, upstr
 	return allErrs
 }
 
-func validateRoute(route v1.Route, fieldPath *field.Path, upstreamNames sets.String, isRouteFieldForbidden bool) field.ErrorList {
+func (vsv *VirtualServerValidator) validateRoute(route v1.Route, fieldPath *field.Path, upstreamNames sets.String, isRouteFieldForbidden bool, namespace string) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	allErrs = append(allErrs, validateRoutePath(route.Path, fieldPath.Child("path"))...)
+	allErrs = append(allErrs, validatePolicies(route.Policies, fieldPath.Child("policies"), namespace)...)
 
 	fieldCount := 0
 
 	if route.Action != nil {
-		allErrs = append(allErrs, validateAction(route.Action, fieldPath.Child("action"), upstreamNames)...)
+		allErrs = append(allErrs, vsv.validateAction(route.Action, fieldPath.Child("action"), upstreamNames, route.Path, false)...)
 		fieldCount++
 	}
 
 	if len(route.Splits) > 0 {
-		allErrs = append(allErrs, validateSplits(route.Splits, fieldPath.Child("splits"), upstreamNames)...)
+		allErrs = append(allErrs, vsv.validateSplits(route.Splits, fieldPath.Child("splits"), upstreamNames, route.Path)...)
 		fieldCount++
 	}
 
 	// Matches are optional. that's why we don't do fieldCount++
 	if len(route.Matches) > 0 {
 		for i, m := range route.Matches {
-			allErrs = append(allErrs, validateMatch(m, fieldPath.Child("matches").Index(i), upstreamNames)...)
+			allErrs = append(allErrs, vsv.validateMatch(m, fieldPath.Child("matches").Index(i), upstreamNames, route.Path)...)
 		}
 	}
 
 	for i, e := range route.ErrorPages {
-		allErrs = append(allErrs, validateErrorPage(e, fieldPath.Child("errorPages").Index(i))...)
+		allErrs = append(allErrs, vsv.validateErrorPage(e, fieldPath.Child("errorPages").Index(i))...)
 	}
 
 	if route.Route != "" {
@@ -617,7 +627,7 @@ func errorPageHasRequiredFields(errorPage v1.ErrorPage) bool {
 	return count == 1
 }
 
-func validateErrorPage(errorPage v1.ErrorPage, fieldPath *field.Path) field.ErrorList {
+func (vsv *VirtualServerValidator) validateErrorPage(errorPage v1.ErrorPage, fieldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if !errorPageHasRequiredFields(errorPage) {
@@ -635,11 +645,11 @@ func validateErrorPage(errorPage v1.ErrorPage, fieldPath *field.Path) field.Erro
 	}
 
 	if errorPage.Return != nil {
-		allErrs = append(allErrs, validateErrorPageReturn(errorPage.Return, fieldPath.Child("return"))...)
+		allErrs = append(allErrs, vsv.validateErrorPageReturn(errorPage.Return, fieldPath.Child("return"))...)
 	}
 
 	if errorPage.Redirect != nil {
-		allErrs = append(allErrs, validateErrorPageRedirect(errorPage.Redirect, fieldPath.Child("redirect"))...)
+		allErrs = append(allErrs, vsv.validateErrorPageRedirect(errorPage.Redirect, fieldPath.Child("redirect"))...)
 	}
 
 	return allErrs
@@ -647,13 +657,13 @@ func validateErrorPage(errorPage v1.ErrorPage, fieldPath *field.Path) field.Erro
 
 var errorPageReturnBodyVariable = map[string]bool{"upstream_status": true}
 
-func validateErrorPageReturn(r *v1.ErrorPageReturn, fieldPath *field.Path) field.ErrorList {
+func (vsv *VirtualServerValidator) validateErrorPageReturn(r *v1.ErrorPageReturn, fieldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
-	allErrs = append(allErrs, validateActionReturn(&r.ActionReturn, fieldPath, nil, errorPageReturnBodyVariable)...)
+	allErrs = append(allErrs, vsv.validateActionReturn(&r.ActionReturn, fieldPath, nil, errorPageReturnBodyVariable)...)
 
 	for i, header := range r.Headers {
-		allErrs = append(allErrs, validateErrorPageHeader(header, fieldPath.Child("headers").Index(i))...)
+		allErrs = append(allErrs, vsv.validateErrorPageHeader(header, fieldPath.Child("headers").Index(i))...)
 	}
 
 	return allErrs
@@ -661,7 +671,7 @@ func validateErrorPageReturn(r *v1.ErrorPageReturn, fieldPath *field.Path) field
 
 var errorPageHeaderValueVariables = map[string]bool{"upstream_status": true}
 
-func validateErrorPageHeader(h v1.Header, fieldPath *field.Path) field.ErrorList {
+func (vsv *VirtualServerValidator) validateErrorPageHeader(h v1.Header, fieldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if h.Name == "" {
@@ -677,17 +687,17 @@ func validateErrorPageHeader(h v1.Header, fieldPath *field.Path) field.ErrorList
 		allErrs = append(allErrs, field.Invalid(fieldPath.Child("value"), h.Value, msg))
 	}
 
-	allErrs = append(allErrs, validateStringWithVariables(h.Value, fieldPath.Child("value"), nil, errorPageHeaderValueVariables)...)
+	allErrs = append(allErrs, validateStringWithVariables(h.Value, fieldPath.Child("value"), nil, errorPageHeaderValueVariables, vsv.isPlus)...)
 
 	return allErrs
 }
 
 var validErrorPageRedirectVariables = map[string]bool{"scheme": true, "http_x_forwarded_proto": true}
 
-func validateErrorPageRedirect(r *v1.ErrorPageRedirect, fieldPath *field.Path) field.ErrorList {
+func (vsv *VirtualServerValidator) validateErrorPageRedirect(r *v1.ErrorPageRedirect, fieldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
-	allErrs = append(allErrs, validateActionRedirect(&r.ActionRedirect, fieldPath, validErrorPageRedirectVariables)...)
+	allErrs = append(allErrs, vsv.validateActionRedirect(&r.ActionRedirect, fieldPath, validErrorPageRedirectVariables)...)
 
 	return allErrs
 }
@@ -703,6 +713,10 @@ func countActions(action *v1.Action) int {
 	}
 
 	if action.Return != nil {
+		count++
+	}
+
+	if action.Proxy != nil {
 		count++
 	}
 
@@ -746,11 +760,11 @@ var validRedirectVariableNames = map[string]bool{
 	"host":                   true,
 }
 
-func validateAction(action *v1.Action, fieldPath *field.Path, upstreamNames sets.String) field.ErrorList {
+func (vsv *VirtualServerValidator) validateAction(action *v1.Action, fieldPath *field.Path, upstreamNames sets.String, path string, internal bool) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if countActions(action) != 1 {
-		return append(allErrs, field.Required(fieldPath, "action must specify exactly one of `pass`, `redirect` or `return`"))
+		return append(allErrs, field.Required(fieldPath, "action must specify exactly one of `pass`, `redirect`, `return` or `proxy`"))
 	}
 
 	if action.Pass != "" {
@@ -758,20 +772,24 @@ func validateAction(action *v1.Action, fieldPath *field.Path, upstreamNames sets
 	}
 
 	if action.Redirect != nil {
-		allErrs = append(allErrs, validateActionRedirect(action.Redirect, fieldPath.Child("redirect"), validRedirectVariableNames)...)
+		allErrs = append(allErrs, vsv.validateActionRedirect(action.Redirect, fieldPath.Child("redirect"), validRedirectVariableNames)...)
 	}
 
 	if action.Return != nil {
-		allErrs = append(allErrs, validateActionReturn(action.Return, fieldPath.Child("return"), returnBodySpecialVariables, returnBodyVariables)...)
+		allErrs = append(allErrs, vsv.validateActionReturn(action.Return, fieldPath.Child("return"), returnBodySpecialVariables, returnBodyVariables)...)
+	}
+
+	if action.Proxy != nil {
+		allErrs = append(allErrs, vsv.validateActionProxy(action.Proxy, fieldPath.Child("proxy"), upstreamNames, path, internal)...)
 	}
 
 	return allErrs
 }
 
-func validateActionRedirect(redirect *v1.ActionRedirect, fieldPath *field.Path, validVars map[string]bool) field.ErrorList {
+func (vsv *VirtualServerValidator) validateActionRedirect(redirect *v1.ActionRedirect, fieldPath *field.Path, validVars map[string]bool) field.ErrorList {
 	allErrs := field.ErrorList{}
 
-	allErrs = append(allErrs, validateRedirectURL(redirect.URL, fieldPath.Child("url"), validVars)...)
+	allErrs = append(allErrs, vsv.validateRedirectURL(redirect.URL, fieldPath.Child("url"), validVars)...)
 
 	if redirect.Code != 0 {
 		allErrs = append(allErrs, validateRedirectStatusCode(redirect.Code, fieldPath.Child("code"))...)
@@ -794,7 +812,7 @@ func captureVariables(s string) []string {
 	return nVars
 }
 
-func validateRedirectURL(redirectURL string, fieldPath *field.Path, validVars map[string]bool) field.ErrorList {
+func (vsv *VirtualServerValidator) validateRedirectURL(redirectURL string, fieldPath *field.Path, validVars map[string]bool) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if redirectURL == "" {
@@ -810,89 +828,7 @@ func validateRedirectURL(redirectURL string, fieldPath *field.Path, validVars ma
 		return append(allErrs, field.Invalid(fieldPath, redirectURL, msg))
 	}
 
-	allErrs = append(allErrs, validateStringWithVariables(redirectURL, fieldPath, nil, validVars)...)
-
-	return allErrs
-}
-
-func validateStringWithVariables(str string, fieldPath *field.Path, specialVars []string, validVars map[string]bool) field.ErrorList {
-	allErrs := field.ErrorList{}
-
-	if strings.HasSuffix(str, "$") {
-		return append(allErrs, field.Invalid(fieldPath, str, "must not end with $"))
-	}
-
-	for i, c := range str {
-		if c == '$' {
-			msg := "variables must be enclosed in curly braces, for example ${host}"
-
-			if str[i+1] != '{' {
-				return append(allErrs, field.Invalid(fieldPath, str, msg))
-			}
-
-			if !strings.Contains(str[i+1:], "}") {
-				return append(allErrs, field.Invalid(fieldPath, str, msg))
-			}
-		}
-	}
-
-	nginxVars := captureVariables(str)
-	for _, nVar := range nginxVars {
-		special := false
-		for _, specialVar := range specialVars {
-			if strings.HasPrefix(nVar, specialVar) {
-				special = true
-				break
-			}
-		}
-
-		if special {
-			allErrs = append(allErrs, validateSpecialVariable(nVar, fieldPath)...)
-		} else {
-			allErrs = append(allErrs, validateVariable(nVar, validVars, fieldPath)...)
-		}
-	}
-
-	return allErrs
-}
-
-func validateVariable(nVar string, validVars map[string]bool, fieldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-
-	if !validVars[nVar] {
-		msg := fmt.Sprintf("'%v' contains an invalid NGINX variable. Accepted variables are: %v", nVar, mapToPrettyString(validVars))
-		allErrs = append(allErrs, field.Invalid(fieldPath, nVar, msg))
-	}
-	return allErrs
-}
-
-func isValidSpecialVariableHeader(header string) []string {
-	// underscores in $http_ variable represent '-'.
-	errMsgs := validation.IsHTTPHeaderName(strings.Replace(header, "_", "-", -1))
-	if len(errMsgs) >= 1 || strings.Contains(header, "-") {
-		return []string{"a valid HTTP header must consist of alphanumeric characters or '_'"}
-	}
-	return nil
-}
-
-func validateSpecialVariable(nVar string, fieldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-	value := strings.SplitN(nVar, "_", 2)
-
-	switch value[0] {
-	case "arg":
-		for _, msg := range isArgumentName(value[1]) {
-			allErrs = append(allErrs, field.Invalid(fieldPath, nVar, msg))
-		}
-	case "http":
-		for _, msg := range isValidSpecialVariableHeader(value[1]) {
-			allErrs = append(allErrs, field.Invalid(fieldPath, nVar, msg))
-		}
-	case "cookie":
-		for _, msg := range isCookieName(value[1]) {
-			allErrs = append(allErrs, field.Invalid(fieldPath, nVar, msg))
-		}
-	}
+	allErrs = append(allErrs, validateStringWithVariables(redirectURL, fieldPath, nil, validVars, vsv.isPlus)...)
 
 	return allErrs
 }
@@ -908,14 +844,14 @@ func validateActionReturnCode(code int, fieldPath *field.Path) field.ErrorList {
 	return append(allErrs, field.Invalid(fieldPath, code, msg))
 }
 
-func validateActionReturn(r *v1.ActionReturn, fieldPath *field.Path, specialValidVars []string, validVars map[string]bool) field.ErrorList {
+func (vsv *VirtualServerValidator) validateActionReturn(r *v1.ActionReturn, fieldPath *field.Path, specialValidVars []string, validVars map[string]bool) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if r.Body == "" {
 		return append(allErrs, field.Required(fieldPath.Child("body"), ""))
 	}
 
-	allErrs = append(allErrs, validateActionReturnBody(r.Body, fieldPath.Child("body"), specialValidVars, validVars)...)
+	allErrs = append(allErrs, validateEscapedStringWithVariables(r.Body, fieldPath.Child("body"), specialValidVars, validVars, vsv.isPlus)...)
 
 	if r.Type != "" {
 		allErrs = append(allErrs, validateActionReturnType(r.Type, fieldPath.Child("type"))...)
@@ -928,7 +864,7 @@ func validateActionReturn(r *v1.ActionReturn, fieldPath *field.Path, specialVali
 	return allErrs
 }
 
-func validateActionReturnBody(body string, fieldPath *field.Path, specialValidVars []string, validVars map[string]bool) field.ErrorList {
+func validateEscapedStringWithVariables(body string, fieldPath *field.Path, specialValidVars []string, validVars map[string]bool, isPlus bool) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if !escapedStringsFmtRegexp.MatchString(body) {
@@ -936,7 +872,7 @@ func validateActionReturnBody(body string, fieldPath *field.Path, specialValidVa
 		allErrs = append(allErrs, field.Invalid(fieldPath, body, msg))
 	}
 
-	allErrs = append(allErrs, validateStringWithVariables(body, fieldPath, specialValidVars, validVars)...)
+	allErrs = append(allErrs, validateStringWithVariables(body, fieldPath, specialValidVars, validVars, isPlus)...)
 
 	return allErrs
 }
@@ -955,16 +891,6 @@ func validateActionReturnType(returnType string, fieldPath *field.Path) field.Er
 	}
 
 	return allErrs
-}
-
-func mapToPrettyString(m map[string]bool) string {
-	var out []string
-
-	for k := range m {
-		out = append(out, k)
-	}
-
-	return strings.Join(out, ", ")
 }
 
 func validateRouteField(value string, fieldPath *field.Path) field.ErrorList {
@@ -990,7 +916,203 @@ func validateReferencedUpstream(name string, fieldPath *field.Path, upstreamName
 	return allErrs
 }
 
-func validateSplits(splits []v1.Split, fieldPath *field.Path, upstreamNames sets.String) field.ErrorList {
+func (vsv *VirtualServerValidator) validateActionProxy(p *v1.ActionProxy, fieldPath *field.Path, upstreamNames sets.String, path string, internal bool) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	allErrs = append(allErrs, validateReferencedUpstream(p.Upstream, fieldPath.Child("upstream"), upstreamNames)...)
+	allErrs = append(allErrs, vsv.validateActionProxyRequestHeaders(p.RequestHeaders, fieldPath.Child("requestHeaders"))...)
+	allErrs = append(allErrs, vsv.validateActionProxyResponseHeaders(p.ResponseHeaders, fieldPath.Child("responseHeaders"))...)
+
+	if strings.HasPrefix(path, "~") || internal {
+		allErrs = append(allErrs, validateActionProxyRewritePathForRegexp(p.RewritePath, fieldPath.Child("rewritePath"))...)
+	} else {
+		allErrs = append(allErrs, validateActionProxyRewritePath(p.RewritePath, fieldPath.Child("rewritePath"))...)
+	}
+
+	return allErrs
+}
+
+func validateStringNoVariables(s string, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	for i, char := range s {
+		charLen := len(string(char))
+		if string(char) == "$" && i+charLen < len(s) {
+			if _, err := strconv.Atoi(string(s[i+charLen])); err != nil {
+				return append(allErrs, field.Invalid(fieldPath, s, "`$` character can be only followed by a number"))
+			}
+		}
+	}
+
+	return allErrs
+}
+
+func validateActionProxyRewritePath(rewritePath string, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if rewritePath == "" {
+		return allErrs
+	}
+
+	allErrs = append(allErrs, validateStringNoVariables(rewritePath, fieldPath)...)
+
+	return append(allErrs, validatePath(rewritePath, fieldPath)...)
+}
+
+func validateActionProxyRewritePathForRegexp(rewritePath string, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if rewritePath == "" {
+		return allErrs
+	}
+
+	allErrs = append(allErrs, validateStringNoVariables(rewritePath, fieldPath)...)
+
+	if !escapedStringsFmtRegexp.MatchString(rewritePath) {
+		msg := validation.RegexError(escapedStringsErrMsg, escapedStringsFmt, "/rewrite$1", "/images")
+		allErrs = append(allErrs, field.Invalid(fieldPath, rewritePath, msg))
+	}
+
+	return allErrs
+}
+
+var actionProxyHeaderVariables = map[string]bool{
+	"request_uri":             true,
+	"request_method":          true,
+	"request_body":            true,
+	"scheme":                  true,
+	"args":                    true,
+	"host":                    true,
+	"request_time":            true,
+	"request_length":          true,
+	"nginx_version":           true,
+	"pid":                     true,
+	"connection":              true,
+	"remote_addr":             true,
+	"remote_port":             true,
+	"time_iso8601":            true,
+	"time_local":              true,
+	"server_addr":             true,
+	"server_port":             true,
+	"server_name":             true,
+	"server_protocol":         true,
+	"connections_active":      true,
+	"connections_reading":     true,
+	"connections_writing":     true,
+	"connections_waiting":     true,
+	"ssl_cipher":              true,
+	"ssl_ciphers":             true,
+	"ssl_client_cert":         true,
+	"ssl_client_escaped_cert": true,
+	"ssl_client_fingerprint":  true,
+	"ssl_client_i_dn":         true,
+	"ssl_client_i_dn_legacy":  true,
+	"ssl_client_raw_cert":     true,
+	"ssl_client_s_dn":         true,
+	"ssl_client_s_dn_legacy":  true,
+	"ssl_client_serial":       true,
+	"ssl_client_v_end":        true,
+	"ssl_client_v_remain":     true,
+	"ssl_client_v_start":      true,
+	"ssl_client_verify":       true,
+	"ssl_curves":              true,
+	"ssl_early_data":          true,
+	"ssl_protocol":            true,
+	"ssl_server_name":         true,
+	"ssl_session_id":          true,
+	"ssl_session_reused":      true,
+}
+
+var actionProxyHeaderSpecialVariables = []string{"arg_", "http_", "cookie_", "jwt_claim_", "jwt_header_"}
+
+func (vsv *VirtualServerValidator) validateActionProxyHeader(h v1.Header, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if h.Name == "" {
+		allErrs = append(allErrs, field.Required(fieldPath.Child("name"), ""))
+	}
+
+	for _, msg := range validation.IsHTTPHeaderName(h.Name) {
+		allErrs = append(allErrs, field.Invalid(fieldPath.Child("name"), h.Name, msg))
+	}
+
+	allErrs = append(allErrs, validateEscapedStringWithVariables(h.Value, fieldPath.Child("value"),
+		actionProxyHeaderSpecialVariables, actionProxyHeaderVariables, vsv.isPlus)...)
+
+	return allErrs
+}
+
+func (vsv *VirtualServerValidator) validateActionProxyRequestHeaders(requestHeaders *v1.ProxyRequestHeaders, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if requestHeaders == nil {
+		return allErrs
+	}
+
+	for i, header := range requestHeaders.Set {
+		allErrs = append(allErrs, vsv.validateActionProxyHeader(header, fieldPath.Index(i))...)
+	}
+
+	return allErrs
+}
+
+func (vsv *VirtualServerValidator) validateActionProxyResponseHeaders(responseHeaders *v1.ProxyResponseHeaders, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if responseHeaders == nil {
+		return allErrs
+	}
+
+	for i, header := range responseHeaders.Hide {
+		for _, msg := range validation.IsHTTPHeaderName(header) {
+			allErrs = append(allErrs, field.Invalid(fieldPath.Child("hide").Index(i), header, msg))
+		}
+	}
+
+	for i, header := range responseHeaders.Pass {
+		for _, msg := range validation.IsHTTPHeaderName(header) {
+			allErrs = append(allErrs, field.Invalid(fieldPath.Child("pass").Index(i), header, msg))
+		}
+	}
+
+	for i, header := range responseHeaders.Add {
+		allErrs = append(allErrs, vsv.validateActionProxyHeader(header.Header, fieldPath.Child("add").Index(i))...)
+	}
+
+	allErrs = append(allErrs, validateIgnoreHeaders(responseHeaders.Ignore, fieldPath.Child("ignore"))...)
+
+	return allErrs
+}
+
+var validIgnoreHeaders = map[string]bool{
+	"X-Accel-Redirect":   true,
+	"X-Accel-Expires":    true,
+	"X-Accel-Limit-Rate": true,
+	"X-Accel-Buffering":  true,
+	"X-Accel-Charset":    true,
+	"Expires":            true,
+	"Cache-Control":      true,
+	"Set-Cookie":         true,
+	"Vary":               true,
+}
+
+func validateIgnoreHeaders(ignoreHeaders []string, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	if len(ignoreHeaders) == 0 {
+		return allErrs
+	}
+
+	for i, h := range ignoreHeaders {
+		if !validIgnoreHeaders[h] {
+			msg := fmt.Sprintf("not a valid ignore header name. Accepted headers are : %v", mapToPrettyString(validIgnoreHeaders))
+			allErrs = append(allErrs, field.Invalid(fieldPath.Index(i), h, msg))
+		}
+	}
+
+	return allErrs
+}
+
+func (vsv *VirtualServerValidator) validateSplits(splits []v1.Split, fieldPath *field.Path, upstreamNames sets.String, path string) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if len(splits) < 2 {
@@ -1009,7 +1131,7 @@ func validateSplits(splits []v1.Split, fieldPath *field.Path, upstreamNames sets
 		if s.Action == nil {
 			allErrs = append(allErrs, field.Required(idxPath.Child("action"), ""))
 		} else {
-			allErrs = append(allErrs, validateAction(s.Action, idxPath.Child("action"), upstreamNames)...)
+			allErrs = append(allErrs, vsv.validateAction(s.Action, idxPath.Child("action"), upstreamNames, path, true)...)
 		}
 
 		totalWeight += s.Weight
@@ -1079,7 +1201,7 @@ func validatePath(path string, fieldPath *field.Path) field.ErrorList {
 	return allErrs
 }
 
-func validateMatch(match v1.Match, fieldPath *field.Path, upstreamNames sets.String) field.ErrorList {
+func (vsv *VirtualServerValidator) validateMatch(match v1.Match, fieldPath *field.Path, upstreamNames sets.String, path string) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if len(match.Conditions) == 0 {
@@ -1093,12 +1215,12 @@ func validateMatch(match v1.Match, fieldPath *field.Path, upstreamNames sets.Str
 	fieldCount := 0
 
 	if match.Action != nil {
-		allErrs = append(allErrs, validateAction(match.Action, fieldPath.Child("action"), upstreamNames)...)
+		allErrs = append(allErrs, vsv.validateAction(match.Action, fieldPath.Child("action"), upstreamNames, path, true)...)
 		fieldCount++
 	}
 
 	if len(match.Splits) > 0 {
-		allErrs = append(allErrs, validateSplits(match.Splits, fieldPath.Child("splits"), upstreamNames)...)
+		allErrs = append(allErrs, vsv.validateSplits(match.Splits, fieldPath.Child("splits"), upstreamNames, path)...)
 		fieldCount++
 	}
 
@@ -1213,26 +1335,28 @@ func isValidMatchValue(value string) []string {
 }
 
 // ValidateVirtualServerRoute validates a VirtualServerRoute.
-func ValidateVirtualServerRoute(virtualServerRoute *v1.VirtualServerRoute, isPlus bool) error {
-	allErrs := validateVirtualServerRouteSpec(&virtualServerRoute.Spec, field.NewPath("spec"), "", "/", isPlus)
+func (vsv *VirtualServerValidator) ValidateVirtualServerRoute(virtualServerRoute *v1.VirtualServerRoute) error {
+	allErrs := vsv.validateVirtualServerRouteSpec(&virtualServerRoute.Spec, field.NewPath("spec"), "", "/", virtualServerRoute.Namespace)
 	return allErrs.ToAggregate()
 }
 
 // ValidateVirtualServerRouteForVirtualServer validates a VirtualServerRoute for a VirtualServer represented by its host and path prefix.
-func ValidateVirtualServerRouteForVirtualServer(virtualServerRoute *v1.VirtualServerRoute, virtualServerHost string, vsPath string, isPlus bool) error {
-	allErrs := validateVirtualServerRouteSpec(&virtualServerRoute.Spec, field.NewPath("spec"), virtualServerHost, vsPath, isPlus)
+func (vsv *VirtualServerValidator) ValidateVirtualServerRouteForVirtualServer(virtualServerRoute *v1.VirtualServerRoute, virtualServerHost string, vsPath string) error {
+	allErrs := vsv.validateVirtualServerRouteSpec(&virtualServerRoute.Spec, field.NewPath("spec"), virtualServerHost, vsPath,
+		virtualServerRoute.Namespace)
 	return allErrs.ToAggregate()
 }
 
-func validateVirtualServerRouteSpec(spec *v1.VirtualServerRouteSpec, fieldPath *field.Path, virtualServerHost string, vsPath string, isPlus bool) field.ErrorList {
+func (vsv *VirtualServerValidator) validateVirtualServerRouteSpec(spec *v1.VirtualServerRouteSpec, fieldPath *field.Path, virtualServerHost string, vsPath string,
+	namespace string) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	allErrs = append(allErrs, validateVirtualServerRouteHost(spec.Host, virtualServerHost, fieldPath.Child("host"))...)
 
-	upstreamErrs, upstreamNames := validateUpstreams(spec.Upstreams, fieldPath.Child("upstreams"), isPlus)
+	upstreamErrs, upstreamNames := vsv.validateUpstreams(spec.Upstreams, fieldPath.Child("upstreams"))
 	allErrs = append(allErrs, upstreamErrs...)
 
-	allErrs = append(allErrs, validateVirtualServerRouteSubroutes(spec.Subroutes, fieldPath.Child("subroutes"), upstreamNames, vsPath)...)
+	allErrs = append(allErrs, vsv.validateVirtualServerRouteSubroutes(spec.Subroutes, fieldPath.Child("subroutes"), upstreamNames, vsPath, namespace)...)
 
 	return allErrs
 }
@@ -1254,7 +1378,7 @@ func isRegexOrExactMatch(path string) bool {
 	return strings.HasPrefix(path, "~") || strings.HasPrefix(path, "=")
 }
 
-func validateVirtualServerRouteSubroutes(routes []v1.Route, fieldPath *field.Path, upstreamNames sets.String, vsPath string) field.ErrorList {
+func (vsv *VirtualServerValidator) validateVirtualServerRouteSubroutes(routes []v1.Route, fieldPath *field.Path, upstreamNames sets.String, vsPath string, namespace string) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	allPaths := sets.String{}
@@ -1269,14 +1393,14 @@ func validateVirtualServerRouteSubroutes(routes []v1.Route, fieldPath *field.Pat
 			return append(allErrs, field.Invalid(idxPath.Child("path"), routes[0].Path, "must have the same path as the referenced VirtualServer route path"))
 		}
 
-		return validateRoute(routes[0], idxPath, upstreamNames, true)
+		return vsv.validateRoute(routes[0], idxPath, upstreamNames, true, namespace)
 	}
 
 	for i, r := range routes {
 		idxPath := fieldPath.Index(i)
 
 		isRouteFieldForbidden := true
-		routeErrs := validateRoute(r, idxPath, upstreamNames, isRouteFieldForbidden)
+		routeErrs := vsv.validateRoute(r, idxPath, upstreamNames, isRouteFieldForbidden, namespace)
 
 		if vsPath != "" && !strings.HasPrefix(r.Path, vsPath) && !isRegexOrExactMatch(r.Path) {
 			msg := fmt.Sprintf("must start with '%s'", vsPath)

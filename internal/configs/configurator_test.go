@@ -1,15 +1,19 @@
 package configs
 
 import (
+	"os"
 	"reflect"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
+	networking "k8s.io/api/networking/v1beta1"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/nginxinc/kubernetes-ingress/internal/configs/version1"
 	"github.com/nginxinc/kubernetes-ingress/internal/configs/version2"
 	"github.com/nginxinc/kubernetes-ingress/internal/nginx"
 	conf_v1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1"
 	conf_v1alpha1 "github.com/nginxinc/kubernetes-ingress/pkg/apis/configuration/v1alpha1"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func createTestStaticConfigParams() *StaticConfigParams {
@@ -36,7 +40,7 @@ func createTestConfigurator() (*Configurator, error) {
 
 	manager := nginx.NewFakeManager("/etc/nginx")
 
-	return NewConfigurator(manager, createTestStaticConfigParams(), NewDefaultConfigParams(), NewDefaultGlobalConfigParams(), templateExecutor, templateExecutorV2, false, false), nil
+	return NewConfigurator(manager, createTestStaticConfigParams(), NewDefaultConfigParams(), NewDefaultGlobalConfigParams(), templateExecutor, templateExecutorV2, false, false, nil, false, nil, false), nil
 }
 
 func createTestConfiguratorInvalidIngressTemplate() (*Configurator, error) {
@@ -52,7 +56,7 @@ func createTestConfiguratorInvalidIngressTemplate() (*Configurator, error) {
 
 	manager := nginx.NewFakeManager("/etc/nginx")
 
-	return NewConfigurator(manager, createTestStaticConfigParams(), NewDefaultConfigParams(), NewDefaultGlobalConfigParams(), templateExecutor, &version2.TemplateExecutor{}, false, false), nil
+	return NewConfigurator(manager, createTestStaticConfigParams(), NewDefaultConfigParams(), NewDefaultGlobalConfigParams(), templateExecutor, &version2.TemplateExecutor{}, false, false, nil, false, nil, false), nil
 }
 
 func TestAddOrUpdateIngress(t *testing.T) {
@@ -426,5 +430,511 @@ func TestGenerateTLSPassthroughHostsConfig(t *testing.T) {
 
 	if !reflect.DeepEqual(resultDuplicatedHosts, expectedDuplicatedHosts) {
 		t.Errorf("generateTLSPassthroughHostsConfig() returned %v but expected %v", resultDuplicatedHosts, expectedDuplicatedHosts)
+	}
+}
+
+func TestAddInternalRouteConfig(t *testing.T) {
+	cnf, err := createTestConfigurator()
+	if err != nil {
+		t.Errorf("Failed to create a test configurator: %v", err)
+	}
+	// set pod name in env
+	err = os.Setenv("POD_NAME", "nginx-ingress")
+	if err != nil {
+		t.Errorf("Failed to set pod name in environment: %v", err)
+	}
+	err = cnf.AddInternalRouteConfig()
+	if err != nil {
+		t.Errorf("AddInternalRouteConfig returned:  \n%v, but expected: \n%v", err, nil)
+	}
+
+	if !cnf.staticCfgParams.EnableInternalRoutes {
+		t.Errorf("AddInternalRouteConfig failed to set EnableInteralRoutes field of staticCfgParams to true")
+	}
+	if cnf.staticCfgParams.PodName != "nginx-ingress" {
+		t.Errorf("AddInternalRouteConfig failed to set PodName field of staticCfgParams")
+	}
+}
+
+func TestFindRemovedKeys(t *testing.T) {
+	tests := []struct {
+		currentKeys []string
+		newKeys     map[string]bool
+		expected    []string
+	}{
+		{
+			currentKeys: []string{"key1", "key2"},
+			newKeys:     map[string]bool{"key1": true, "key2": true},
+			expected:    nil,
+		},
+		{
+			currentKeys: []string{"key1", "key2"},
+			newKeys:     map[string]bool{"key2": true, "key3": true},
+			expected:    []string{"key1"},
+		},
+		{
+			currentKeys: []string{"key1", "key2"},
+			newKeys:     map[string]bool{"key3": true, "key4": true},
+			expected:    []string{"key1", "key2"},
+		},
+		{
+			currentKeys: []string{"key1", "key2"},
+			newKeys:     map[string]bool{"key3": true},
+			expected:    []string{"key1", "key2"},
+		},
+	}
+	for _, test := range tests {
+		result := findRemovedKeys(test.currentKeys, test.newKeys)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("findRemovedKeys(%v, %v) returned %v but expected %v", test.currentKeys, test.newKeys, result, test.expected)
+		}
+	}
+}
+
+func TestCreateUpstreamServerLabels(t *testing.T) {
+	expected := []string{"coffee-svc", "ingress", "cafe", "default"}
+	result := createUpstreamServerLabels("coffee-svc", "ingress", "cafe", "default")
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("createUpstreamServerLabels(%v, %v, %v, %v) returned %v but expected %v", "coffee-svc", "ingress", "cafe", "default", result, expected)
+	}
+}
+
+func TestCreateServerZoneLabels(t *testing.T) {
+	expected := []string{"ingress", "cafe", "default"}
+	result := createServerZoneLabels("ingress", "cafe", "default")
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("createServerZoneLabels(%v, %v, %v) returned %v but expected %v", "ingress", "cafe", "default", result, expected)
+	}
+}
+
+type mockLabelUpdater struct {
+	upstreamServerLabels     map[string][]string
+	serverZoneLabels         map[string][]string
+	upstreamServerPeerLabels map[string][]string
+}
+
+func newFakeLabelUpdater() *mockLabelUpdater {
+	return &mockLabelUpdater{
+		upstreamServerLabels:     make(map[string][]string),
+		serverZoneLabels:         make(map[string][]string),
+		upstreamServerPeerLabels: make(map[string][]string),
+	}
+}
+
+// UpdateUpstreamServerPeerLabels updates the Upstream Server Peer Labels
+func (u *mockLabelUpdater) UpdateUpstreamServerPeerLabels(upstreamServerPeerLabels map[string][]string) {
+	for k, v := range upstreamServerPeerLabels {
+		u.upstreamServerPeerLabels[k] = v
+	}
+}
+
+// DeleteUpstreamServerPeerLabels deletes the Upstream Server Peer Labels
+func (u *mockLabelUpdater) DeleteUpstreamServerPeerLabels(peers []string) {
+	for _, k := range peers {
+		delete(u.upstreamServerPeerLabels, k)
+	}
+}
+
+// UpdateUpstreamServerLabels updates the Upstream Server Labels
+func (u *mockLabelUpdater) UpdateUpstreamServerLabels(upstreamServerLabelValues map[string][]string) {
+	for k, v := range upstreamServerLabelValues {
+		u.upstreamServerLabels[k] = v
+	}
+}
+
+// DeleteUpstreamServerLabels deletes the Upstream Server Labels
+func (u *mockLabelUpdater) DeleteUpstreamServerLabels(upstreamNames []string) {
+	for _, k := range upstreamNames {
+		delete(u.upstreamServerLabels, k)
+	}
+}
+
+// UpdateServerZoneLabels updates the Server Zone Labels
+func (u *mockLabelUpdater) UpdateServerZoneLabels(serverZoneLabelValues map[string][]string) {
+	for k, v := range serverZoneLabelValues {
+		u.serverZoneLabels[k] = v
+	}
+}
+
+// DeleteServerZoneLabels deletes the Server Zone Labels
+func (u *mockLabelUpdater) DeleteServerZoneLabels(zoneNames []string) {
+	for _, k := range zoneNames {
+		delete(u.serverZoneLabels, k)
+	}
+}
+
+type mockLatencyCollector struct {
+	upstreamServerLabels        map[string][]string
+	upstreamServerPeerLabels    map[string][]string
+	upstreamServerPeersToDelete []string
+}
+
+func newMockLatencyCollector() *mockLatencyCollector {
+	return &mockLatencyCollector{
+		upstreamServerLabels:     make(map[string][]string),
+		upstreamServerPeerLabels: make(map[string][]string),
+	}
+}
+
+// DeleteMetrics deletes metrics for the given upstream server peers
+func (u *mockLatencyCollector) DeleteMetrics(upstreamServerPeerNames []string) {
+	u.upstreamServerPeersToDelete = upstreamServerPeerNames
+}
+
+// UpdateUpstreamServerLabels updates the Upstream Server Labels
+func (u *mockLatencyCollector) UpdateUpstreamServerLabels(upstreamServerLabelValues map[string][]string) {
+	for k, v := range upstreamServerLabelValues {
+		u.upstreamServerLabels[k] = v
+	}
+}
+
+// DeleteUpstreamServerLabels deletes the Upstream Server Labels
+func (u *mockLatencyCollector) DeleteUpstreamServerLabels(upstreamNames []string) {
+	for _, k := range upstreamNames {
+		delete(u.upstreamServerLabels, k)
+	}
+}
+
+// UpdateUpstreamServerPeerLabels updates the Upstream Server Peer Labels
+func (u *mockLatencyCollector) UpdateUpstreamServerPeerLabels(upstreamServerPeerLabels map[string][]string) {
+	for k, v := range upstreamServerPeerLabels {
+		u.upstreamServerPeerLabels[k] = v
+	}
+}
+
+// DeleteUpstreamServerPeerLabels deletes the Upstream Server Peer Labels
+func (u *mockLatencyCollector) DeleteUpstreamServerPeerLabels(peers []string) {
+	for _, k := range peers {
+		delete(u.upstreamServerPeerLabels, k)
+	}
+}
+
+// RecordLatency implements a fake RecordLatency method
+func (u *mockLatencyCollector) RecordLatency(string) {}
+
+// Register implements a fake Register method
+func (u *mockLatencyCollector) Register(*prometheus.Registry) error { return nil }
+
+func TestUpdateIngressMetricsLabels(t *testing.T) {
+	cnf, err := createTestConfigurator()
+	if err != nil {
+		t.Fatalf("Failed to create a test configurator: %v", err)
+	}
+
+	cnf.isPlus = true
+	cnf.labelUpdater = newFakeLabelUpdater()
+	testLatencyCollector := newMockLatencyCollector()
+	cnf.latencyCollector = testLatencyCollector
+
+	ingEx := &IngressEx{
+		Ingress: &networking.Ingress{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "test-ingress",
+				Namespace: "default",
+			},
+			Spec: networking.IngressSpec{
+				Rules: []networking.IngressRule{
+					{
+						Host: "example.com",
+					},
+				},
+			},
+		},
+		PodsByIP: map[string]PodInfo{
+			"10.0.0.1:80": {Name: "pod-1"},
+			"10.0.0.2:80": {Name: "pod-2"},
+		},
+	}
+
+	upstreams := []version1.Upstream{
+		{
+			Name: "upstream-1",
+			UpstreamServers: []version1.UpstreamServer{
+				{
+					Address: "10.0.0.1",
+					Port:    "80",
+				},
+			},
+			UpstreamLabels: version1.UpstreamLabels{
+				Service:           "service-1",
+				ResourceType:      "ingress",
+				ResourceName:      ingEx.Ingress.Name,
+				ResourceNamespace: ingEx.Ingress.Namespace,
+			},
+		},
+		{
+			Name: "upstream-2",
+			UpstreamServers: []version1.UpstreamServer{
+				{
+					Address: "10.0.0.2",
+					Port:    "80",
+				},
+			},
+			UpstreamLabels: version1.UpstreamLabels{
+				Service:           "service-2",
+				ResourceType:      "ingress",
+				ResourceName:      ingEx.Ingress.Name,
+				ResourceNamespace: ingEx.Ingress.Namespace,
+			},
+		},
+	}
+	upstreamServerLabels := map[string][]string{
+		"upstream-1": {"service-1", "ingress", "test-ingress", "default"},
+		"upstream-2": {"service-2", "ingress", "test-ingress", "default"},
+	}
+	upstreamServerPeerLabels := map[string][]string{
+		"upstream-1/10.0.0.1:80": {"pod-1"},
+		"upstream-2/10.0.0.2:80": {"pod-2"},
+	}
+	expectedLabelUpdater := &mockLabelUpdater{
+		upstreamServerLabels: upstreamServerLabels,
+		serverZoneLabels: map[string][]string{
+			"example.com": {"ingress", "test-ingress", "default"},
+		},
+		upstreamServerPeerLabels: upstreamServerPeerLabels,
+	}
+	expectedLatencyCollector := &mockLatencyCollector{
+		upstreamServerLabels:     upstreamServerLabels,
+		upstreamServerPeerLabels: upstreamServerPeerLabels,
+	}
+
+	// add labels for a new Ingress resource
+	cnf.updateIngressMetricsLabels(ingEx, upstreams)
+	if !reflect.DeepEqual(cnf.labelUpdater, expectedLabelUpdater) {
+		t.Errorf("updateIngressMetricsLabels() updated labels to \n%+v but expected \n%+v", cnf.labelUpdater, expectedLabelUpdater)
+	}
+	if !reflect.DeepEqual(testLatencyCollector, expectedLatencyCollector) {
+		t.Errorf("updateIngressMetricsLabels() updated latency collector labels to \n%+v but expected \n%+v", testLatencyCollector, expectedLatencyCollector)
+	}
+
+	updatedUpstreams := []version1.Upstream{
+		{
+			Name: "upstream-1",
+			UpstreamServers: []version1.UpstreamServer{
+				{
+					Address: "10.0.0.1",
+					Port:    "80",
+				},
+			},
+			UpstreamLabels: version1.UpstreamLabels{
+				Service:           "service-1",
+				ResourceType:      "ingress",
+				ResourceName:      ingEx.Ingress.Name,
+				ResourceNamespace: ingEx.Ingress.Namespace,
+			},
+		},
+	}
+
+	upstreamServerLabels = map[string][]string{
+		"upstream-1": {"service-1", "ingress", "test-ingress", "default"},
+	}
+
+	upstreamServerPeerLabels = map[string][]string{
+		"upstream-1/10.0.0.1:80": {"pod-1"},
+	}
+
+	expectedLabelUpdater = &mockLabelUpdater{
+		upstreamServerLabels: upstreamServerLabels,
+		serverZoneLabels: map[string][]string{
+			"example.com": {"ingress", "test-ingress", "default"},
+		},
+		upstreamServerPeerLabels: upstreamServerPeerLabels,
+	}
+	expectedLatencyCollector = &mockLatencyCollector{
+		upstreamServerLabels:        upstreamServerLabels,
+		upstreamServerPeerLabels:    upstreamServerPeerLabels,
+		upstreamServerPeersToDelete: []string{"upstream-2/10.0.0.2:80"},
+	}
+
+	// update labels for an updated Ingress with deleted upstream-2
+	cnf.updateIngressMetricsLabels(ingEx, updatedUpstreams)
+	if !reflect.DeepEqual(cnf.labelUpdater, expectedLabelUpdater) {
+		t.Errorf("updateIngressMetricsLabels() updated labels to \n%+v but expected \n%+v", cnf.labelUpdater, expectedLabelUpdater)
+	}
+	if !reflect.DeepEqual(testLatencyCollector, expectedLatencyCollector) {
+		t.Errorf("updateIngressMetricsLabels() updated latency collector labels to \n%+v but expected \n%+v", testLatencyCollector, expectedLatencyCollector)
+	}
+
+	upstreamServerLabels = map[string][]string{}
+	upstreamServerPeerLabels = map[string][]string{}
+
+	expectedLabelUpdater = &mockLabelUpdater{
+		upstreamServerLabels:     map[string][]string{},
+		serverZoneLabels:         map[string][]string{},
+		upstreamServerPeerLabels: map[string][]string{},
+	}
+	expectedLatencyCollector = &mockLatencyCollector{
+		upstreamServerLabels:        upstreamServerLabels,
+		upstreamServerPeerLabels:    upstreamServerPeerLabels,
+		upstreamServerPeersToDelete: []string{"upstream-1/10.0.0.1:80"},
+	}
+
+	// delete labels for a deleted Ingress
+	cnf.deleteIngressMetricsLabels("default/test-ingress")
+	if !reflect.DeepEqual(cnf.labelUpdater, expectedLabelUpdater) {
+		t.Errorf("deleteIngressMetricsLabels() updated labels to \n%+v but expected \n%+v", cnf.labelUpdater, expectedLabelUpdater)
+	}
+	if !reflect.DeepEqual(testLatencyCollector, expectedLatencyCollector) {
+		t.Errorf("updateIngressMetricsLabels() updated latency collector labels to \n%+v but expected \n%+v", testLatencyCollector, expectedLatencyCollector)
+	}
+}
+
+func TestUpdateVirtualServerMetricsLabels(t *testing.T) {
+	cnf, err := createTestConfigurator()
+	if err != nil {
+		t.Fatalf("Failed to create a test configurator: %v", err)
+	}
+
+	cnf.isPlus = true
+	cnf.labelUpdater = newFakeLabelUpdater()
+	testLatencyCollector := newMockLatencyCollector()
+	cnf.latencyCollector = testLatencyCollector
+
+	vsEx := &VirtualServerEx{
+		VirtualServer: &conf_v1.VirtualServer{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name:      "test-vs",
+				Namespace: "default",
+			},
+			Spec: conf_v1.VirtualServerSpec{
+				Host: "example.com",
+			},
+		},
+		PodsByIP: map[string]PodInfo{
+			"10.0.0.1:80": {Name: "pod-1"},
+			"10.0.0.2:80": {Name: "pod-2"},
+		},
+	}
+
+	upstreams := []version2.Upstream{
+		{
+			Name: "upstream-1",
+			Servers: []version2.UpstreamServer{
+				{
+					Address: "10.0.0.1:80",
+				},
+			},
+			UpstreamLabels: version2.UpstreamLabels{
+				Service:           "service-1",
+				ResourceType:      "virtualserver",
+				ResourceName:      vsEx.VirtualServer.Name,
+				ResourceNamespace: vsEx.VirtualServer.Namespace,
+			},
+		},
+		{
+			Name: "upstream-2",
+			Servers: []version2.UpstreamServer{
+				{
+					Address: "10.0.0.2:80",
+				},
+			},
+			UpstreamLabels: version2.UpstreamLabels{
+				Service:           "service-2",
+				ResourceType:      "virtualserver",
+				ResourceName:      vsEx.VirtualServer.Name,
+				ResourceNamespace: vsEx.VirtualServer.Namespace,
+			},
+		},
+	}
+
+	upstreamServerLabels := map[string][]string{
+		"upstream-1": {"service-1", "virtualserver", "test-vs", "default"},
+		"upstream-2": {"service-2", "virtualserver", "test-vs", "default"},
+	}
+
+	upstreamServerPeerLabels := map[string][]string{
+		"upstream-1/10.0.0.1:80": {"pod-1"},
+		"upstream-2/10.0.0.2:80": {"pod-2"},
+	}
+
+	expectedLabelUpdater := &mockLabelUpdater{
+		upstreamServerLabels: upstreamServerLabels,
+		serverZoneLabels: map[string][]string{
+			"example.com": {"virtualserver", "test-vs", "default"},
+		},
+		upstreamServerPeerLabels: upstreamServerPeerLabels,
+	}
+
+	expectedLatencyCollector := &mockLatencyCollector{
+		upstreamServerLabels:     upstreamServerLabels,
+		upstreamServerPeerLabels: upstreamServerPeerLabels,
+	}
+
+	// add labels for a new VirtualServer resource
+	cnf.updateVirtualServerMetricsLabels(vsEx, upstreams)
+	if !reflect.DeepEqual(cnf.labelUpdater, expectedLabelUpdater) {
+		t.Errorf("updateVirtualServerMetricsLabels() updated labels to \n%+v but expected \n%+v", cnf.labelUpdater, expectedLabelUpdater)
+	}
+	if !reflect.DeepEqual(testLatencyCollector, expectedLatencyCollector) {
+		t.Errorf("updateVirtualServerMetricsLabels() updated latency collector's labels to \n%+v but expected \n%+v", testLatencyCollector, expectedLatencyCollector)
+	}
+
+	updatedUpstreams := []version2.Upstream{
+		{
+			Name: "upstream-1",
+			Servers: []version2.UpstreamServer{
+				{
+					Address: "10.0.0.1:80",
+				},
+			},
+			UpstreamLabels: version2.UpstreamLabels{
+				Service:           "service-1",
+				ResourceType:      "virtualserver",
+				ResourceName:      vsEx.VirtualServer.Name,
+				ResourceNamespace: vsEx.VirtualServer.Namespace,
+			},
+		},
+	}
+
+	upstreamServerLabels = map[string][]string{
+		"upstream-1": {"service-1", "virtualserver", "test-vs", "default"},
+	}
+	upstreamServerPeerLabels = map[string][]string{
+		"upstream-1/10.0.0.1:80": {"pod-1"},
+	}
+
+	expectedLabelUpdater = &mockLabelUpdater{
+		upstreamServerLabels: upstreamServerLabels,
+		serverZoneLabels: map[string][]string{
+			"example.com": {"virtualserver", "test-vs", "default"},
+		},
+		upstreamServerPeerLabels: upstreamServerPeerLabels,
+	}
+
+	expectedLatencyCollector = &mockLatencyCollector{
+		upstreamServerLabels:        upstreamServerLabels,
+		upstreamServerPeerLabels:    upstreamServerPeerLabels,
+		upstreamServerPeersToDelete: []string{"upstream-2/10.0.0.2:80"},
+	}
+
+	// update labels for an updated VirtualServer with deleted upstream-2
+	cnf.updateVirtualServerMetricsLabels(vsEx, updatedUpstreams)
+	if !reflect.DeepEqual(cnf.labelUpdater, expectedLabelUpdater) {
+		t.Errorf("updateVirtualServerMetricsLabels() updated labels to \n%+v but expected \n%+v", cnf.labelUpdater, expectedLabelUpdater)
+	}
+	if !reflect.DeepEqual(testLatencyCollector, expectedLatencyCollector) {
+		t.Errorf("updateVirtualServerMetricsLabels() updated latency collector's labels to \n%+v but expected \n%+v", testLatencyCollector, expectedLatencyCollector)
+	}
+
+	expectedLabelUpdater = &mockLabelUpdater{
+		upstreamServerLabels:     map[string][]string{},
+		serverZoneLabels:         map[string][]string{},
+		upstreamServerPeerLabels: map[string][]string{},
+	}
+
+	expectedLatencyCollector = &mockLatencyCollector{
+		upstreamServerLabels:        map[string][]string{},
+		upstreamServerPeerLabels:    map[string][]string{},
+		upstreamServerPeersToDelete: []string{"upstream-1/10.0.0.1:80"},
+	}
+
+	// delete labels for a deleted VirtualServer
+	cnf.deleteVirtualServerMetricsLabels("default/test-vs")
+	if !reflect.DeepEqual(cnf.labelUpdater, expectedLabelUpdater) {
+		t.Errorf("deleteVirtualServerMetricsLabels() updated labels to \n%+v but expected \n%+v", cnf.labelUpdater, expectedLabelUpdater)
+	}
+
+	if !reflect.DeepEqual(testLatencyCollector, expectedLatencyCollector) {
+		t.Errorf("updateVirtualServerMetricsLabels() updated latency collector's labels to \n%+v but expected \n%+v", testLatencyCollector, expectedLatencyCollector)
 	}
 }

@@ -12,7 +12,7 @@ Customization and fine-tuning is also available through the [ConfigMap](/nginx-i
 
 Here is an example of using annotations to customize the configuration for a particular Ingress resource:
 ```yaml
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: cafe-ingress-with-annotations
@@ -76,47 +76,47 @@ The table below summarizes the available annotations.
      - Example
    * - ``nginx.org/proxy-connect-timeout``
      - ``proxy-connect-timeout``
-     - Sets the value of the `proxy_connect_timeout <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_connect_timeout>`_ and `grpc_connect_timeout <http://nginx.org/en/docs/http/ngx_http_grpc_module.html#grpc_connect_timeout>`_ directive.
+     - Sets the value of the `proxy_connect_timeout <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_connect_timeout>`_ and `grpc_connect_timeout <https://nginx.org/en/docs/http/ngx_http_grpc_module.html#grpc_connect_timeout>`_ directive.
      - ``60s``
      - 
    * - ``nginx.org/proxy-read-timeout``
      - ``proxy-read-timeout``
-     - Sets the value of the `proxy_read_timeout <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout>`_ and `grpc_read_timeout <http://nginx.org/en/docs/http/ngx_http_grpc_module.html#grpc_read_timeout>`_ directive.
+     - Sets the value of the `proxy_read_timeout <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout>`_ and `grpc_read_timeout <https://nginx.org/en/docs/http/ngx_http_grpc_module.html#grpc_read_timeout>`_ directive.
      - ``60s``
      - 
    * - ``nginx.org/proxy-send-timeout``
      - ``proxy-send-timeout``
-     - Sets the value of the `proxy_send_timeout <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_send_timeout>`_ and `grpc_send_timeout <http://nginx.org/en/docs/http/ngx_http_grpc_module.html#grpc_send_timeout>`_ directive.
+     - Sets the value of the `proxy_send_timeout <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_send_timeout>`_ and `grpc_send_timeout <https://nginx.org/en/docs/http/ngx_http_grpc_module.html#grpc_send_timeout>`_ directive.
      - ``60s``
      - 
    * - ``nginx.org/client-max-body-size``
      - ``client-max-body-size``
-     - Sets the value of the `client_max_body_size <http://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size>`_ directive.
+     - Sets the value of the `client_max_body_size <https://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size>`_ directive.
      - ``1m``
      - 
    * - ``nginx.org/proxy-buffering``
      - ``proxy-buffering``
-     - Enables or disables `buffering of responses <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering>`_ from the proxied server.
+     - Enables or disables `buffering of responses <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering>`_ from the proxied server.
      - ``True``
      - 
    * - ``nginx.org/proxy-buffers``
      - ``proxy-buffers``
-     - Sets the value of the `proxy_buffers <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffers>`_ directive.
+     - Sets the value of the `proxy_buffers <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffers>`_ directive.
      - Depends on the platform.
      - 
    * - ``nginx.org/proxy-buffer-size``
      - ``proxy-buffer-size``
-     - Sets the value of the `proxy_buffer_size <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffer_size>`_ and `grpc_buffer_size <http://nginx.org/en/docs/http/ngx_http_grpc_module.html#grpc_buffer_size>`_ directives.
+     - Sets the value of the `proxy_buffer_size <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffer_size>`_ and `grpc_buffer_size <https://nginx.org/en/docs/http/ngx_http_grpc_module.html#grpc_buffer_size>`_ directives.
      - Depends on the platform.
      - 
    * - ``nginx.org/proxy-max-temp-file-size``
      - ``proxy-max-temp-file-size``
-     - Sets the value of the  `proxy_max_temp_file_size <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_max_temp_file_size>`_ directive.
+     - Sets the value of the  `proxy_max_temp_file_size <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_max_temp_file_size>`_ directive.
      - ``1024m``
      - 
    * - ``nginx.org/server-tokens``
      - ``server-tokens``
-     - Enables or disables the `server_tokens <http://nginx.org/en/docs/http/ngx_http_core_module.html#server_tokens>`_ directive. Additionally, with the NGINX Plus, you can specify a custom string value, including the empty string value, which disables the emission of the “Server” field.
+     - Enables or disables the `server_tokens <https://nginx.org/en/docs/http/ngx_http_core_module.html#server_tokens>`_ directive. Additionally, with the NGINX Plus, you can specify a custom string value, including the empty string value, which disables the emission of the “Server” field.
      - ``True``
      - 
 ```
@@ -134,12 +134,12 @@ The table below summarizes the available annotations.
      - Example
    * - ``nginx.org/proxy-hide-headers``
      - ``proxy-hide-headers``
-     - Sets the value of one or more  `proxy_hide_header <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_hide_header>`_ directives. Example: ``"nginx.org/proxy-hide-headers": "header-a,header-b"``
+     - Sets the value of one or more  `proxy_hide_header <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_hide_header>`_ directives. Example: ``"nginx.org/proxy-hide-headers": "header-a,header-b"``
      - N/A
      - 
    * - ``nginx.org/proxy-pass-headers``
      - ``proxy-pass-headers``
-     - Sets the value of one or more   `proxy_pass_header <http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass_header>`_ directives. Example: ``"nginx.org/proxy-pass-headers": "header-a,header-b"``
+     - Sets the value of one or more   `proxy_pass_header <https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass_header>`_ directives. Example: ``"nginx.org/proxy-pass-headers": "header-a,header-b"``
      - N/A
      - 
    * - ``nginx.org/rewrites``
@@ -293,7 +293,7 @@ The table below summarizes the available annotations.
      - `Session Persistence <https://github.com/nginxinc/kubernetes-ingress/tree/v1.7.0-rc1/examples/session-persistence>`_.
    * - ``nginx.org/keepalive``
      - ``keepalive``
-     - Sets the value of the `keepalive <http://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive>`_ directive. Note that ``proxy_set_header Connection "";`` is added to the generated configuration when the value > 0.
+     - Sets the value of the `keepalive <https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive>`_ directive. Note that ``proxy_set_header Connection "";`` is added to the generated configuration when the value > 0.
      - ``0``
      - 
    * - ``nginx.com/health-checks``
@@ -339,4 +339,44 @@ The table below summarizes the available annotations.
      - Sets a custom snippet in server context.
      - N/A
      - 
+```
+    
+### App Protect
+
+**Note**: The App Protect annotations only work if App Protect module is [installed](/nginx-ingress-controller/app-protect/installation/).
+
+```eval_rst
+.. list-table::
+   :header-rows: 1
+
+   * - Annotation
+     - ConfigMap Key
+     - Description
+     - Default
+     - Example
+   * - ``appprotect.f5.com/app-protect-policy``
+     - N/A
+     - The name of the App Protect Policy for the Ingress Resource. Format is ``namespace/name``. If no namespace is specified, the same namespace of the Ingress Resource is used. If not specified but ``appprotect.f5.com/app-protect-enable`` is true, a default policy id applied. If the referenced policy resource does not exist, or policy is invalid, this annotation will be ignored, and the default policy will be applied. 
+     - N/A
+     - `Example for App Protect <https://github.com/nginxinc/kubernetes-ingress/tree/master/examples/appprotect>`_.
+   * - ``appprotect.f5.com/app-protect-enable``
+     - N/A
+     - Enable App Protect for the Ingress Resource.
+     - ``False``
+     - `Example for App Protect <https://github.com/nginxinc/kubernetes-ingress/tree/master/examples/appprotect>`_.
+   * - ``appprotect.f5.com/app-protect-security-log-enable``
+     - N/A
+     - Enable the `security log </nginx-app-protect/troubleshooting/#app-protect-security-log>`_ for App Protect.
+     - ``False``
+     - `Example for App Protect <https://github.com/nginxinc/kubernetes-ingress/tree/master/examples/appprotect>`_.
+   * - ``appprotect.f5.com/app-protect-security-log``
+     - N/A
+     - The App Protect log configuration for the Ingress Resource. Format is ``namespace/name``. If no namespace is specified, the same namespace as the Ingress Resource is used. If not specified the  default is used which is:  filter: ``illegal``, format: ``default``
+     - N/A
+     - `Example for App Protect <https://github.com/nginxinc/kubernetes-ingress/tree/master/examples/appprotect>`_.
+   * - ``appprotect.f5.com/app-protect-security-log-destination``
+     - N/A
+     - The destination of the security log. For more information check the `DESTINATION argument </nginx-app-protect/troubleshooting/#app-protect-security-log>`_. 
+     - ``syslog:server=localhost:514``
+     - `Example for App Protect <https://github.com/nginxinc/kubernetes-ingress/tree/master/examples/appprotect>`_.
 ```

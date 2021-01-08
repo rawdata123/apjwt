@@ -4,7 +4,7 @@ To support a gRPC application with NGINX Ingress controllers, you need to add th
 
 ## Prerequisites 
 
-* HTTP/2 must be enabled. See `http2` ConfigMap key in the [ConfigMap and Annotations doc](../../docs/configmap-and-annotations.md).
+* HTTP/2 must be enabled. See `http2` ConfigMap key in the [ConfigMap](https://docs.nginx.com/nginx-ingress-controller/configuration/global-configuration/configmap-resource/#listeners) 
 * Ingress resources for gRPC applications must include TLS termination.
 
 ## Syntax
@@ -18,7 +18,7 @@ nginx.org/grpc-services: "service1[,service2,...]"
 
 In the following example we load balance three applications, one of which is using gRPC:
 ```yaml
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: grpc-ingress

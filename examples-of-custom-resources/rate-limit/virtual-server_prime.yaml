@@ -1,0 +1,21 @@
+apiVersion: k8s.nginx.org/v1
+kind: VirtualServer
+metadata:
+  name: webapp-prime
+spec:
+  host: webapp.example.com
+  policies:
+  - name: rate-limit-policy
+  upstreams:
+  - name: webapp
+    service: webapp-svc
+    port: 80
+  routes:
+  - path: /prime
+    errorPages:
+    - codes: [503]
+      redirect:
+        code: 301
+        url: https://nginx.org
+    action:
+      pass: webapp

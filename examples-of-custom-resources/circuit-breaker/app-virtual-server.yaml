@@ -1,0 +1,26 @@
+apiVersion: k8s.nginx.org/v1
+kind: VirtualServer
+metadata:
+  name: app
+spec:
+  host: app.example.com
+  tls:
+    secret: app-secret
+  upstreams:
+  - name: app
+    service: app-svc
+    port: 80
+    healthCheck:
+      enable: true
+      path: /error_500
+      fails: 5
+      interval: 10s
+  routes:
+  - path: /
+    errorPages:
+    - codes: [502]
+      redirect:
+        code: 301
+        url: https://nginx.org
+    action:
+      pass: app

@@ -123,7 +123,6 @@ server {
 		{{- if $location.ProxyBufferSize}}
 		grpc_buffer_size {{$location.ProxyBufferSize}};
 		{{- end}}
-
 		{{if $location.SSL}}
 		grpc_pass grpcs://{{$location.Upstream.Name}}{{$location.Rewrite}};
 		{{else}}

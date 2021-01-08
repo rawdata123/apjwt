@@ -6,6 +6,10 @@ The Ingress Controller supports several command-line arguments. Setting the argu
 
 Below we describe the available command-line arguments:
 ```eval_rst
+.. option:: -enable-snippets
+
+	Enable custom NGINX configuration snippets in VirtualServer and VirtualServerRoute resources. (default false)
+
 .. option:: -default-server-tls-secret <string>
 
 	Secret with a TLS certificate and key for TLS termination of the default server.
@@ -27,11 +31,11 @@ Below we describe the available command-line arguments:
 
 .. option:: -enable-custom-resources
 
-	Enables custom resources (default true)
+	Enables custom resources. (default true)
 
 .. option:: -enable-leader-election
 
-	Enables Leader election to avoid multiple replicas of the controller reporting the status of Ingress resources -- only one replica will report status.
+	Enables Leader election to avoid multiple replicas of the controller reporting the status of Ingress, VirtualServer and VirtualServerRoute resources -- only one replica will report status. (default true)
 
 	See :option:`-report-ingress-status` flag.
 
@@ -43,9 +47,9 @@ Below we describe the available command-line arguments:
 
 .. option:: -external-service <string>
 
-	Specifies the name of the service with the type LoadBalancer through which the Ingress controller pods are exposed externally. The external address of the service is used when reporting the status of Ingress resources.
+	Specifies the name of the service with the type LoadBalancer through which the Ingress controller pods are exposed externally. The external address of the service is used when reporting the status of Ingress, VirtualServer and VirtualServerRoute resources.
 
-	Requires :option:`-report-ingress-status`.
+	For Ingress resources only: Requires :option:`-report-ingress-status`.
 
 .. option:: -global-configuration <string>
 
@@ -60,10 +64,23 @@ Below we describe the available command-line arguments:
 	Adds a location "/nginx-health" to the default server. The location responds with the 200 status code for any request.
 	Useful for external health-checking of the Ingress controller.
 
+.. option:: -health-status-uri <string>
+
+	Sets the URI of health status location in the default server. Requires :option:`-health-status`. (default "/nginx-health")
+
 .. option:: -ingress-class <string>
 
-	A class of the Ingress controller. The Ingress controller only processes Ingress resources that belong to its class (in other words, have the annotation "kubernetes.io/ingress.class").
-	Additionally, the Ingress controller processes Ingress resources that do not have that annotation, which can be disabled by setting the :option:`-use-ingress-class-only` flag (default "nginx").
+	A class of the Ingress controller.
+
+	For Kubernetes >= 1.18, a corresponding IngressClass resource with the name equal to the class must be deployed. Otherwise, the Ingress Controller will fail to start.
+	The Ingress controller only processes resources that belong to its class - i.e. have the "ingressClassName" field resource equal to the class.
+
+	For Kubernetes < 1.18, the Ingress Controller only processes resources that belong to its class - i.e have the annotation "kubernetes.io/ingress.class" (for Ingress resources) or field "ingressClassName" (for VirtualServer/VirtualServerRoute resources) equal to the class.
+	Additionally, the Ingress Controller processes resources that do not have the class set, which can be disabled by setting the "-use-ingress-class-only" flag.
+
+	The Ingress Controller processes all the VirtualServer/VirtualServerRoute resources that do not have the "ingressClassName" field.
+
+	(default "nginx")
 
 .. option:: -ingress-template-path <string>
 
@@ -98,6 +115,10 @@ Below we describe the available command-line arguments:
 
 	Enable support for NGINX Plus
 
+.. option:: -nginx-reload-timeout <value>
+
+    Timeout in milliseconds which the Ingress Controller will wait for a successful NGINX reload after a change or at the initial start. (default is 4000. Default is 20000 instead if `enable-app-protect` is true)
+
 .. option:: -nginx-status
 
 	Enable the NGINX stub_status, or the NGINX Plus API. (default true)
@@ -111,7 +132,7 @@ Below we describe the available command-line arguments:
 
 	Set the port where the NGINX stub_status or the NGINX Plus API is exposed.
 
-	Format: ``[1023 - 65535]`` (default 8080)
+	Format: ``[1024 - 65535]`` (default 8080)
 
 .. option:: -proxy <string>
 
@@ -131,6 +152,8 @@ Below we describe the available command-line arguments:
 	- Default for NGINX Plus is "nginx-plus.transportserver.tmpl".
 
 .. option:: -use-ingress-class-only
+
+	For kubernetes versions >= 1.18 this flag will be IGNORED.
 
 	Ignore Ingress resources without the "kubernetes.io/ingress.class" annotation.
 
@@ -161,9 +184,42 @@ Below we describe the available command-line arguments:
 
 	Enables exposing NGINX or NGINX Plus metrics in the Prometheus format.
 
-.. option:: -prometheus-metrics-listen-port
+.. option:: -prometheus-metrics-listen-port <int>
 
 	Sets the port where the Prometheus metrics are exposed.
 
-	Format: ``[1023 - 65535]`` (default 9113)
+	Format: ``[1024 - 65535]`` (default 9113)
+
+.. option:: -spire-agent-address <string>
+
+	Specifies the address of a running Spire agent. **For use with NGINX Service Mesh only**.
+    Requires :option:`-nginx-plus`.
+
+	- If the argument is set, but the Ingress Controller is unable to connect to the Spire Agent, the Ingress Controller will fail to start.
+
+.. option:: -enable-internal-routes
+
+	Enable support for internal routes with NGINX Service Mesh. **For use with NGINX Service Mesh only**.
+    Requires :option:`-nginx-plus` and :option:`-spire-agent-address`.
+
+    - If the argument is set, but `nginx-plus` is set to false, or the `spire-agent-address` is not provided, the Ingress Controller will fail to start.
+
+.. option:: -enable-app-protect
+
+	 Enables support for App Protect.
+
+   Requires :option:`-nginx-plus`
+
+	 - If the argument is set, but `nginx-plus` is set to false, the Ingress Controller will fail to start.
+
+.. option:: -ready-status
+
+ 	Enables the readiness endpoint "/nginx-ready". The endpoint returns a success code when NGINX has loaded all the config after the startup. (default true)
+
+.. option:: -ready-status-port
+
+	The HTTP port for the readiness endpoint.
+
+	Format: ``[1024 - 65535]`` (default 8081)
+
 ```

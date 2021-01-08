@@ -6,7 +6,7 @@ In this example we deploy the NGINX or NGINX Plus Ingress controller, a simple w
 
 ## 1. Deploy the Ingress Controller
 
-1. Follow the installation [instructions](../../docs/installation.md) to deploy the Ingress controller.
+1. Follow the [installation](https://docs.nginx.com/nginx-ingress-controller/installation/installation-with-manifests/) instructions to deploy the Ingress controller.
 
 2. Save the public IP address of the Ingress controller into a shell variable:
     ```
@@ -31,7 +31,7 @@ $ kubectl create -f cafe.yaml
     $ kubectl create -f cafe-secret.yaml
     ```
 
-2. Create an Ingress resource:
+2. Create an Ingress resource (for Kubernetes >= 1.18, uncomment the ```ingressClassName``` field in the YAML file):
     ```
     $ kubectl create -f cafe-ingress.yaml
     ```
@@ -57,5 +57,5 @@ certificate and the --resolve option to set the Host header of a request with ``
     ```
 
 1. You can view an NGINX status page, either stub_status for NGINX, or the Live Activity Monitoring Dashboard for NGINX Plus:
-    1. Follow the [instructions](../../docs/installation.md#5-access-the-live-activity-monitoring-dashboard--stub_status-page) to access the status page.
+    1. Follow the [instructions](https://docs.nginx.com/nginx-ingress-controller/logging-and-monitoring/status-page/) to access the status page.
     1. For NGINX Plus, If you go to the Upstream tab, you'll see: ![dashboard](dashboard.png)
